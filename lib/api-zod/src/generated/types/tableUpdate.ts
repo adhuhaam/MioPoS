@@ -8,6 +8,8 @@
 import type { TableUpdateStatus } from "./tableUpdateStatus";
 
 export interface TableUpdate {
+  /** @nullable */
+  areaId?: number | null;
   name?: string;
   capacity?: number;
   status?: TableUpdateStatus;

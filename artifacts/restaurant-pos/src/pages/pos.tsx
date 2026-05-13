@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ShoppingCart, X, Send, Receipt, Banknote, Building2, CreditCard, Upload, CheckCircle2 } from "lucide-react";
+import { ShoppingCart, X, Send, Receipt, Banknote, Building2, CreditCard, Upload, CheckCircle2, Timer } from "lucide-react";
 
 type PayMode = "cash" | "bank_transfer" | "credit";
 
@@ -92,7 +92,23 @@ export default function POS() {
   const subtotal = Number(typedOrder?.subtotal ?? 0);
   const discount = Number(typedOrder?.discountAmount ?? 0);
   const tax = Number(typedOrder?.taxAmount ?? 0);
+  const timeFee = Number((typedOrder as any)?.timeFee ?? 0);
   const total = Number(typedOrder?.total ?? 0);
+
+  // Live timer for timed-area tables
+  const selectedTable = tables?.find(t => t.id === selectedTableId) as any;
+  const isTimedArea = selectedTable?.area?.type === "timed";
+  const [elapsedMins, setElapsedMins] = useState(0);
+  useEffect(() => {
+    if (!isTimedArea || !(typedOrder as any)?.tableOpenedAt) { setElapsedMins(0); return; }
+    const update = () => {
+      const ms = Date.now() - new Date((typedOrder as any).tableOpenedAt).getTime();
+      setElapsedMins(Math.floor(ms / 60000));
+    };
+    update();
+    const id = setInterval(update, 30000);
+    return () => clearInterval(id);
+  }, [isTimedArea, (typedOrder as any)?.tableOpenedAt]);
 
   // Auto-select first table from URL param
   useEffect(() => {
@@ -363,10 +379,32 @@ export default function POS() {
             }} className="h-8" data-testid="button-apply-discount">Apply</Button>
           </div>
 
+          {isTimedArea && activeOrderId && (
+            <div className="flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg px-3 py-2">
+              <Timer className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>
+                {elapsedMins < 60
+                  ? `${elapsedMins}m elapsed`
+                  : `${Math.floor(elapsedMins / 60)}h ${elapsedMins % 60}m elapsed`}
+                {selectedTable?.area?.hourlyRate && (
+                  <span className="text-muted-foreground ml-1">
+                    · est. ${((elapsedMins / 60) * Number(selectedTable.area.hourlyRate)).toFixed(2)}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
             {discount > 0 && <div className="flex justify-between text-green-600 dark:text-green-400"><span>Discount</span><span>-${discount.toFixed(2)}</span></div>}
             <div className="flex justify-between text-muted-foreground"><span>Tax</span><span>${tax.toFixed(2)}</span></div>
+            {timeFee > 0 && (
+              <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
+                <span className="flex items-center gap-1"><Timer className="w-3 h-3" />Room charge</span>
+                <span>${timeFee.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-base pt-1 border-t border-border"><span>Total</span><span>${total.toFixed(2)}</span></div>
           </div>
 

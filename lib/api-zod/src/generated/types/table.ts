@@ -5,12 +5,16 @@
  * Restaurant Chain POS API
  * OpenAPI spec version: 0.1.0
  */
+import type { Area } from "./area";
 import type { TableStatus } from "./tableStatus";
 
 export interface Table {
   id: number;
   outletId: number;
+  /** @nullable */
+  areaId?: number | null;
   name: string;
   capacity: number;
   status: TableStatus;
+  area?: Area;
 }

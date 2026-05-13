@@ -206,6 +206,60 @@ export interface OrderItemModifierInput {
   modifierOptionId: number;
 }
 
+export type AreaType = (typeof AreaType)[keyof typeof AreaType];
+
+export const AreaType = {
+  standard: "standard",
+  timed: "timed",
+} as const;
+
+export interface Area {
+  id: number;
+  outletId: number;
+  name: string;
+  type: AreaType;
+  /** @nullable */
+  hourlyRate?: number | null;
+  color: string;
+  /** @nullable */
+  description?: string | null;
+  createdAt?: string;
+}
+
+export type AreaInputType = (typeof AreaInputType)[keyof typeof AreaInputType];
+
+export const AreaInputType = {
+  standard: "standard",
+  timed: "timed",
+} as const;
+
+export interface AreaInput {
+  outletId: number;
+  name: string;
+  type: AreaInputType;
+  hourlyRate?: number;
+  color?: string;
+  description?: string;
+}
+
+export type AreaUpdateType =
+  (typeof AreaUpdateType)[keyof typeof AreaUpdateType];
+
+export const AreaUpdateType = {
+  standard: "standard",
+  timed: "timed",
+} as const;
+
+export interface AreaUpdate {
+  name?: string;
+  type?: AreaUpdateType;
+  /** @nullable */
+  hourlyRate?: number | null;
+  color?: string;
+  /** @nullable */
+  description?: string | null;
+}
+
 export type TableStatus = (typeof TableStatus)[keyof typeof TableStatus];
 
 export const TableStatus = {
@@ -217,9 +271,12 @@ export const TableStatus = {
 export interface Table {
   id: number;
   outletId: number;
+  /** @nullable */
+  areaId?: number | null;
   name: string;
   capacity: number;
   status: TableStatus;
+  area?: Area;
 }
 
 export type TableInputStatus =
@@ -233,6 +290,8 @@ export const TableInputStatus = {
 
 export interface TableInput {
   outletId: number;
+  /** @nullable */
+  areaId?: number | null;
   name: string;
   capacity: number;
   status?: TableInputStatus;
@@ -248,6 +307,8 @@ export const TableUpdateStatus = {
 } as const;
 
 export interface TableUpdate {
+  /** @nullable */
+  areaId?: number | null;
   name?: string;
   capacity?: number;
   status?: TableUpdateStatus;
@@ -275,9 +336,12 @@ export interface Order {
   discountAmount: number;
   /** @nullable */
   discountPercent?: number | null;
+  timeFee: number;
   total: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tableOpenedAt?: string | null;
   createdAt: string;
 }
 
@@ -346,9 +410,12 @@ export interface OrderDetail {
   discountAmount: number;
   /** @nullable */
   discountPercent?: number | null;
+  timeFee: number;
   total: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tableOpenedAt?: string | null;
   createdAt: string;
   items: OrderItem[];
   payments: Payment[];
@@ -554,6 +621,10 @@ export type ListMenuItemsParams = {
 };
 
 export type ListModifierGroupsParams = {
+  outletId: number;
+};
+
+export type ListAreasParams = {
   outletId: number;
 };
 

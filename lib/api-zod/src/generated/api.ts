@@ -489,6 +489,70 @@ export const UnassignItemModifierGroupParams = zod.object({
 });
 
 /**
+ * @summary List areas for an outlet
+ */
+export const ListAreasQueryParams = zod.object({
+  outletId: zod.coerce.number(),
+});
+
+export const ListAreasResponseItem = zod.object({
+  id: zod.number(),
+  outletId: zod.number(),
+  name: zod.string(),
+  type: zod.enum(["standard", "timed"]),
+  hourlyRate: zod.number().nullish(),
+  color: zod.string(),
+  description: zod.string().nullish(),
+  createdAt: zod.string().optional(),
+});
+export const ListAreasResponse = zod.array(ListAreasResponseItem);
+
+/**
+ * @summary Create area
+ */
+export const CreateAreaBody = zod.object({
+  outletId: zod.number(),
+  name: zod.string(),
+  type: zod.enum(["standard", "timed"]),
+  hourlyRate: zod.number().optional(),
+  color: zod.string().optional(),
+  description: zod.string().optional(),
+});
+
+/**
+ * @summary Update area
+ */
+export const UpdateAreaParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAreaBody = zod.object({
+  name: zod.string().optional(),
+  type: zod.enum(["standard", "timed"]).optional(),
+  hourlyRate: zod.number().nullish(),
+  color: zod.string().optional(),
+  description: zod.string().nullish(),
+});
+
+export const UpdateAreaResponse = zod.object({
+  id: zod.number(),
+  outletId: zod.number(),
+  name: zod.string(),
+  type: zod.enum(["standard", "timed"]),
+  hourlyRate: zod.number().nullish(),
+  color: zod.string(),
+  description: zod.string().nullish(),
+  createdAt: zod.string().optional(),
+});
+
+/**
+ * @summary Delete area
+ */
+export const DeleteAreaParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
  * @summary List tables for an outlet
  */
 export const ListTablesQueryParams = zod.object({
@@ -498,9 +562,22 @@ export const ListTablesQueryParams = zod.object({
 export const ListTablesResponseItem = zod.object({
   id: zod.number(),
   outletId: zod.number(),
+  areaId: zod.number().nullish(),
   name: zod.string(),
   capacity: zod.number(),
   status: zod.enum(["available", "occupied", "bill_requested"]),
+  area: zod
+    .object({
+      id: zod.number(),
+      outletId: zod.number(),
+      name: zod.string(),
+      type: zod.enum(["standard", "timed"]),
+      hourlyRate: zod.number().nullish(),
+      color: zod.string(),
+      description: zod.string().nullish(),
+      createdAt: zod.string().optional(),
+    })
+    .optional(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
 
@@ -509,6 +586,7 @@ export const ListTablesResponse = zod.array(ListTablesResponseItem);
  */
 export const CreateTableBody = zod.object({
   outletId: zod.number(),
+  areaId: zod.number().nullish(),
   name: zod.string(),
   capacity: zod.number(),
   status: zod.enum(["available", "occupied", "bill_requested"]).optional(),
@@ -522,6 +600,7 @@ export const UpdateTableParams = zod.object({
 });
 
 export const UpdateTableBody = zod.object({
+  areaId: zod.number().nullish(),
   name: zod.string().optional(),
   capacity: zod.number().optional(),
   status: zod.enum(["available", "occupied", "bill_requested"]).optional(),
@@ -530,9 +609,22 @@ export const UpdateTableBody = zod.object({
 export const UpdateTableResponse = zod.object({
   id: zod.number(),
   outletId: zod.number(),
+  areaId: zod.number().nullish(),
   name: zod.string(),
   capacity: zod.number(),
   status: zod.enum(["available", "occupied", "bill_requested"]),
+  area: zod
+    .object({
+      id: zod.number(),
+      outletId: zod.number(),
+      name: zod.string(),
+      type: zod.enum(["standard", "timed"]),
+      hourlyRate: zod.number().nullish(),
+      color: zod.string(),
+      description: zod.string().nullish(),
+      createdAt: zod.string().optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -568,8 +660,10 @@ export const ListOrdersResponse = zod.object({
       taxAmount: zod.number(),
       discountAmount: zod.number(),
       discountPercent: zod.number().nullish(),
+      timeFee: zod.number(),
       total: zod.number(),
       notes: zod.string().nullish(),
+      tableOpenedAt: zod.string().nullish(),
       createdAt: zod.string(),
     }),
   ),
@@ -604,8 +698,10 @@ export const GetOrderResponse = zod.object({
   taxAmount: zod.number(),
   discountAmount: zod.number(),
   discountPercent: zod.number().nullish(),
+  timeFee: zod.number(),
   total: zod.number(),
   notes: zod.string().nullish(),
+  tableOpenedAt: zod.string().nullish(),
   createdAt: zod.string(),
   items: zod.array(
     zod.object({
@@ -668,8 +764,10 @@ export const UpdateOrderResponse = zod.object({
   taxAmount: zod.number(),
   discountAmount: zod.number(),
   discountPercent: zod.number().nullish(),
+  timeFee: zod.number(),
   total: zod.number(),
   notes: zod.string().nullish(),
+  tableOpenedAt: zod.string().nullish(),
   createdAt: zod.string(),
 });
 
@@ -1055,8 +1153,10 @@ export const GetDashboardResponse = zod.object({
         taxAmount: zod.number(),
         discountAmount: zod.number(),
         discountPercent: zod.number().nullish(),
+        timeFee: zod.number(),
         total: zod.number(),
         notes: zod.string().nullish(),
+        tableOpenedAt: zod.string().nullish(),
         createdAt: zod.string(),
       }),
     )

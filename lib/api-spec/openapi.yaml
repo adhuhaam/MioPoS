@@ -18,6 +18,8 @@ tags:
     description: Staff management
   - name: menu
     description: Menu management
+  - name: areas
+    description: Seating area management
   - name: tables
     description: Table management
   - name: orders
@@ -647,6 +649,83 @@ paths:
       responses:
         "204":
           description: Removed
+
+  # ── Areas ─────────────────────────────────────────────────────────────────
+  /areas:
+    get:
+      operationId: listAreas
+      tags: [areas]
+      summary: List areas for an outlet
+      parameters:
+        - name: outletId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Area"
+    post:
+      operationId: createArea
+      tags: [areas]
+      summary: Create area
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AreaInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+
+  /areas/{id}:
+    patch:
+      operationId: updateArea
+      tags: [areas]
+      summary: Update area
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AreaUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+    delete:
+      operationId: deleteArea
+      tags: [areas]
+      summary: Delete area
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
 
   # ── Tables ────────────────────────────────────────────────────────────────
   /tables:
@@ -1561,6 +1640,62 @@ components:
         modifierOptionId:
           type: integer
 
+    # ── Area schemas ──────────────────────────────────────────────────────
+    Area:
+      type: object
+      required: [id, outletId, name, type, color]
+      properties:
+        id:
+          type: integer
+        outletId:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [standard, timed]
+        hourlyRate:
+          type: ["number", "null"]
+        color:
+          type: string
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AreaInput:
+      type: object
+      required: [outletId, name, type]
+      properties:
+        outletId:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [standard, timed]
+        hourlyRate:
+          type: number
+        color:
+          type: string
+        description:
+          type: string
+
+    AreaUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [standard, timed]
+        hourlyRate:
+          type: ["number", "null"]
+        color:
+          type: string
+        description:
+          type: ["string", "null"]
+
     # ── Table schemas ─────────────────────────────────────────────────────
     Table:
       type: object
@@ -1570,6 +1705,8 @@ components:
           type: integer
         outletId:
           type: integer
+        areaId:
+          type: ["integer", "null"]
         name:
           type: string
         capacity:
@@ -1577,6 +1714,8 @@ components:
         status:
           type: string
           enum: [available, occupied, bill_requested]
+        area:
+          $ref: "#/components/schemas/Area"
 
     TableInput:
       type: object
@@ -1584,6 +1723,8 @@ components:
       properties:
         outletId:
           type: integer
+        areaId:
+          type: ["integer", "null"]
         name:
           type: string
         capacity:
@@ -1595,6 +1736,8 @@ components:
     TableUpdate:
       type: object
       properties:
+        areaId:
+          type: ["integer", "null"]
         name:
           type: string
         capacity:
@@ -1606,7 +1749,7 @@ components:
     # ── Order schemas ─────────────────────────────────────────────────────
     Order:
       type: object
-      required: [id, outletId, tableId, tableName, status, subtotal, taxAmount, discountAmount, total, createdAt]
+      required: [id, outletId, tableId, tableName, status, subtotal, taxAmount, discountAmount, timeFee, total, createdAt]
       properties:
         id:
           type: integer
@@ -1629,16 +1772,20 @@ components:
           type: number
         discountPercent:
           type: ["number", "null"]
+        timeFee:
+          type: number
         total:
           type: number
         notes:
+          type: ["string", "null"]
+        tableOpenedAt:
           type: ["string", "null"]
         createdAt:
           type: string
 
     OrderDetail:
       type: object
-      required: [id, outletId, tableId, tableName, status, subtotal, taxAmount, discountAmount, total, createdAt, items, payments]
+      required: [id, outletId, tableId, tableName, status, subtotal, taxAmount, discountAmount, timeFee, total, createdAt, items, payments]
       properties:
         id:
           type: integer
@@ -1661,9 +1808,13 @@ components:
           type: number
         discountPercent:
           type: ["number", "null"]
+        timeFee:
+          type: number
         total:
           type: number
         notes:
+          type: ["string", "null"]
+        tableOpenedAt:
           type: ["string", "null"]
         createdAt:
           type: string

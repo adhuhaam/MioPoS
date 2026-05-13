@@ -22,9 +22,12 @@ export interface OrderDetail {
   discountAmount: number;
   /** @nullable */
   discountPercent?: number | null;
+  timeFee: number;
   total: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tableOpenedAt?: string | null;
   createdAt: string;
   items: OrderItem[];
   payments: Payment[];

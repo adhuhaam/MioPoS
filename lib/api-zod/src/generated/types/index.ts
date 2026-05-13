@@ -6,6 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./area";
+export * from "./areaInput";
+export * from "./areaInputType";
+export * from "./areaType";
+export * from "./areaUpdate";
+export * from "./areaUpdateType";
 export * from "./authResult";
 export * from "./consolidatedReport";
 export * from "./creditAdjustment";
@@ -25,6 +31,7 @@ export * from "./itemModifierGroupAssignment";
 export * from "./itemModifierGroupInput";
 export * from "./kitchenOrder";
 export * from "./kitchenOrderStatus";
+export * from "./listAreasParams";
 export * from "./listCategoriesParams";
 export * from "./listCustomersParams";
 export * from "./listKitchenOrdersParams";

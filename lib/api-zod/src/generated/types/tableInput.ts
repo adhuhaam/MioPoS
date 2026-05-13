@@ -9,6 +9,8 @@ import type { TableInputStatus } from "./tableInputStatus";
 
 export interface TableInput {
   outletId: number;
+  /** @nullable */
+  areaId?: number | null;
   name: string;
   capacity: number;
   status?: TableInputStatus;

@@ -8,6 +8,7 @@ import {
   orderItemsTable,
   orderItemModifiersTable,
   tablesTable,
+  areasTable,
   menuItemsTable,
   modifierGroupsTable,
   outletsTable,
@@ -22,15 +23,15 @@ const router = Router();
 function recalcOrder(
   items: Array<{ unitPrice: string; quantity: number; total: string }>,
   taxRate: number,
-  discountPercent?: string | null
+  discountPercent?: string | null,
+  timeFee: number = 0
 ): { subtotal: number; discountAmount: number; taxAmount: number; total: number } {
-  // Use stored item totals which already include modifier price adjustments
   const subtotal = items.reduce((s, i) => s + parseFloat(i.total), 0);
   const dp = discountPercent ? parseFloat(discountPercent) : 0;
   const discountAmount = subtotal * (dp / 100);
   const taxable = subtotal - discountAmount;
   const taxAmount = taxable * (taxRate / 100);
-  const total = taxable + taxAmount;
+  const total = taxable + taxAmount + timeFee;
   return { subtotal, discountAmount, taxAmount, total };
 }
 
@@ -45,6 +46,14 @@ async function itemsWithModifiers(orderId: number) {
     const modifiers = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, item.id));
     return { ...item, modifiers };
   }));
+}
+
+// Calculate time fee (in currency units) for a timed area
+function calcTimeFee(openedAt: Date | null, hourlyRate: string | null): number {
+  if (!openedAt || !hourlyRate) return 0;
+  const elapsedMs = Date.now() - new Date(openedAt).getTime();
+  const elapsedHours = elapsedMs / (1000 * 60 * 60);
+  return Math.round(elapsedHours * parseFloat(hourlyRate) * 100) / 100;
 }
 
 router.get("/orders", requireAuth, async (req: Request, res: Response) => {
@@ -108,12 +117,14 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
       return res.status(400).json({ error: "Table does not belong to this outlet" });
     }
 
+    const now = new Date();
     const [order] = await db.insert(ordersTable).values({
       outletId,
       tableId,
       staffId: staffId ?? null,
       notes: notes ?? null,
       status: "open",
+      tableOpenedAt: now,
     }).returning();
 
     await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, tableId));
@@ -164,13 +175,35 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
     if (status !== undefined) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
 
+    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
+    const taxRate = parseFloat(outlet?.taxRate ?? "0");
+
     if (discountPercent !== undefined) {
       const dpStr = discountPercent !== null ? discountPercent.toString() : null;
       updates.discountPercent = dpStr;
-      const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
-      const taxRate = parseFloat(outlet?.taxRate ?? "0");
       const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
-      const calc = recalcOrder(items, taxRate, dpStr);
+      const existingTimeFee = parseFloat(order.timeFee ?? "0");
+      const calc = recalcOrder(items, taxRate, dpStr, existingTimeFee);
+      updates.subtotal = calc.subtotal.toFixed(2);
+      updates.discountAmount = calc.discountAmount.toFixed(2);
+      updates.taxAmount = calc.taxAmount.toFixed(2);
+      updates.total = calc.total.toFixed(2);
+    }
+
+    // When generating the bill for a timed area, auto-calculate time fee
+    if (status === "billed") {
+      const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, order.tableId) });
+      let timeFee = 0;
+      if (table?.areaId) {
+        const area = await db.query.areasTable.findFirst({ where: eq(areasTable.id, table.areaId) });
+        if (area?.type === "timed" && area.hourlyRate) {
+          timeFee = calcTimeFee(order.tableOpenedAt, area.hourlyRate);
+        }
+      }
+      updates.timeFee = timeFee.toFixed(2);
+      // Recalculate total including time fee
+      const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+      const calc = recalcOrder(items, taxRate, order.discountPercent, timeFee);
       updates.subtotal = calc.subtotal.toFixed(2);
       updates.discountAmount = calc.discountAmount.toFixed(2);
       updates.taxAmount = calc.taxAmount.toFixed(2);
@@ -213,7 +246,6 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
     const menuItem = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, menuItemId) });
     if (!menuItem) return res.status(404).json({ error: "Menu item not found" });
 
-    // Verify menu item belongs to a category in the same outlet
     const { menuCategoriesTable } = await import("@workspace/db");
     const category = await db.query.menuCategoriesTable.findFirst({ where: eq(menuCategoriesTable.id, menuItem.categoryId) });
     if (!category || category.outletId !== order.outletId) {
@@ -241,7 +273,6 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
         const opt = await db.query.modifierOptionsTable.findFirst({ where: (t, { eq: eqFn }) => eqFn(t.id, optId) });
         if (!opt) continue;
 
-        // Verify the modifier option belongs to the same outlet as the order
         const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, opt.groupId) });
         if (!group || group.outletId !== order.outletId) {
           return res.status(400).json({ error: `Modifier option ${optId} does not belong to this outlet` });
@@ -255,7 +286,6 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
         });
         modifierAdj += parseFloat(opt.priceAdjustment);
       }
-      // Update item total to include modifier price adjustments
       if (modifierAdj !== 0) {
         const itemTotal = (unitPrice + modifierAdj) * qty;
         await db.update(orderItemsTable).set({ total: itemTotal.toFixed(2) }).where(eq(orderItemsTable.id, item.id));
@@ -266,7 +296,8 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
     const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
     const taxRate = parseFloat(outlet?.taxRate ?? "0");
-    const calc = recalcOrder(allItems, taxRate, order.discountPercent);
+    const existingTimeFee = parseFloat(order.timeFee ?? "0");
+    const calc = recalcOrder(allItems, taxRate, order.discountPercent, existingTimeFee);
 
     await db.update(ordersTable).set({
       subtotal: calc.subtotal.toFixed(2),
@@ -326,7 +357,8 @@ router.patch("/orders/:id/items/:itemId", requireRole("super_admin", "manager", 
       const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
       const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
       const taxRate = parseFloat(outlet?.taxRate ?? "0");
-      const calc = recalcOrder(allItems, taxRate, order.discountPercent);
+      const existingTimeFee = parseFloat(order.timeFee ?? "0");
+      const calc = recalcOrder(allItems, taxRate, order.discountPercent, existingTimeFee);
       await db.update(ordersTable).set({
         subtotal: calc.subtotal.toFixed(2),
         discountAmount: calc.discountAmount.toFixed(2),
@@ -364,7 +396,8 @@ router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager",
     const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
     const taxRate = parseFloat(outlet?.taxRate ?? "0");
-    const calc = recalcOrder(allItems, taxRate, order.discountPercent);
+    const existingTimeFee = parseFloat(order.timeFee ?? "0");
+    const calc = recalcOrder(allItems, taxRate, order.discountPercent, existingTimeFee);
     await db.update(ordersTable).set({
       subtotal: calc.subtotal.toFixed(2),
       discountAmount: calc.discountAmount.toFixed(2),

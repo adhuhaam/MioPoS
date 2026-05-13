@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { eq } from "drizzle-orm";
-import { db, tablesTable } from "@workspace/db";
+import { db, tablesTable, areasTable } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 
 const router = Router();
@@ -9,6 +9,12 @@ const router = Router();
 function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
   if (req.session.role === "super_admin") return true;
   return req.session.outletId === resourceOutletId;
+}
+
+async function tableWithArea(table: typeof tablesTable.$inferSelect) {
+  if (!table.areaId) return { ...table, area: null };
+  const area = await db.query.areasTable.findFirst({ where: eq(areasTable.id, table.areaId) });
+  return { ...table, area: area ?? null };
 }
 
 router.get("/tables", requireAuth, async (req: Request, res: Response) => {
@@ -19,7 +25,9 @@ router.get("/tables", requireAuth, async (req: Request, res: Response) => {
     const tables = outletId
       ? await db.select().from(tablesTable).where(eq(tablesTable.outletId, outletId)).orderBy(tablesTable.name)
       : await db.select().from(tablesTable).orderBy(tablesTable.name);
-    return res.json(tables);
+
+    const tablesWithArea = await Promise.all(tables.map(tableWithArea));
+    return res.json(tablesWithArea);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -28,8 +36,9 @@ router.get("/tables", requireAuth, async (req: Request, res: Response) => {
 
 router.post("/tables", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
-    const { outletId, name, capacity, status } = req.body as {
+    const { outletId, areaId, name, capacity, status } = req.body as {
       outletId: number;
+      areaId?: number | null;
       name: string;
       capacity?: number;
       status?: string;
@@ -41,11 +50,13 @@ router.post("/tables", requireRole("super_admin", "manager"), async (req: Reques
 
     const [table] = await db.insert(tablesTable).values({
       outletId,
+      areaId: areaId ?? null,
       name,
       capacity: capacity ?? 4,
       status: (status as "available" | "occupied" | "bill_requested") ?? "available",
     }).returning();
-    return res.status(201).json(table);
+
+    return res.status(201).json(await tableWithArea(table));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -55,7 +66,12 @@ router.post("/tables", requireRole("super_admin", "manager"), async (req: Reques
 router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
-    const { name, capacity, status } = req.body as { name?: string; capacity?: number; status?: string };
+    const { areaId, name, capacity, status } = req.body as {
+      areaId?: number | null;
+      name?: string;
+      capacity?: number;
+      status?: string;
+    };
 
     const existing = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, id) });
     if (!existing) return res.status(404).json({ error: "Not found" });
@@ -64,12 +80,14 @@ router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), as
     }
 
     const updates: Record<string, unknown> = {};
+    if (areaId !== undefined) updates.areaId = areaId;
     if (name !== undefined) updates.name = name;
     if (capacity !== undefined) updates.capacity = capacity;
     if (status !== undefined) updates.status = status;
+
     const [table] = await db.update(tablesTable).set(updates).where(eq(tablesTable.id, id)).returning();
     if (!table) return res.status(404).json({ error: "Not found" });
-    return res.json(table);
+    return res.json(await tableWithArea(table));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
