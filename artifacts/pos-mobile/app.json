@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "POS Mobile",
-    "slug": "pos-mobile",
+    "name": "MioPos",
+    "slug": "miopos",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "pos-mobile",
+    "scheme": "miopos",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -14,9 +14,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.miopos.app"
     },
-    "android": {},
+    "android": {
+      "package": "com.miopos.app"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
