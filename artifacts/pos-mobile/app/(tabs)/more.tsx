@@ -104,6 +104,9 @@ export default function MoreScreen() {
         {/* Operations */}
         <SectionHeader title="OPERATIONS" />
         <View style={[styles.section, { borderColor: colors.border }]}>
+          <MenuRow icon="list" label="Orders" description="Order history & status"
+            onPress={() => router.push("/orders")} tint="#0ea5e9" />
+          <Divider />
           <MenuRow icon="users" label="Customers" description="CRM & credit balances"
             onPress={() => router.push("/customers")} tint="#8b5cf6" />
         </View>
