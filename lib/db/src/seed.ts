@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import bcrypt from "bcryptjs";
 import * as schema from "./schema";
 
 const { Pool } = pg;
@@ -53,16 +54,24 @@ async function seed() {
   ]);
   console.log("Created 6 tables per outlet");
 
-  // Staff — full role coverage per outlet plus one super_admin
-  await db.insert(schema.staffTable).values([
-    { outletId: null,          name: "Super Admin",       role: "super_admin", pin: "0000" },
-    { outletId: downtown.id,   name: "Downtown Manager",  role: "manager",     pin: "1111" },
-    { outletId: downtown.id,   name: "Downtown Cashier",  role: "cashier",     pin: "2222" },
-    { outletId: downtown.id,   name: "Downtown Kitchen",  role: "kitchen",     pin: "3333" },
-    { outletId: airport.id,    name: "Airport Manager",   role: "manager",     pin: "4444" },
-    { outletId: airport.id,    name: "Airport Cashier",   role: "cashier",     pin: "5555" },
-    { outletId: airport.id,    name: "Airport Kitchen",   role: "kitchen",     pin: "6666" },
-  ]);
+  // Staff — full role coverage per outlet plus one super_admin; PINs hashed with bcrypt
+  const ROUNDS = 10;
+  const staffDefs = [
+    { outletId: null,        name: "Super Admin",      role: "super_admin" as const, rawPin: "0000" },
+    { outletId: downtown.id, name: "Downtown Manager", role: "manager"     as const, rawPin: "1111" },
+    { outletId: downtown.id, name: "Downtown Cashier", role: "cashier"     as const, rawPin: "2222" },
+    { outletId: downtown.id, name: "Downtown Kitchen", role: "kitchen"     as const, rawPin: "3333" },
+    { outletId: airport.id,  name: "Airport Manager",  role: "manager"     as const, rawPin: "4444" },
+    { outletId: airport.id,  name: "Airport Cashier",  role: "cashier"     as const, rawPin: "5555" },
+    { outletId: airport.id,  name: "Airport Kitchen",  role: "kitchen"     as const, rawPin: "6666" },
+  ];
+  const staffRows = await Promise.all(
+    staffDefs.map(async ({ rawPin, ...rest }) => ({
+      ...rest,
+      pin: await bcrypt.hash(rawPin, ROUNDS),
+    }))
+  );
+  await db.insert(schema.staffTable).values(staffRows);
   console.log("Created staff");
 
   // ---- Downtown menu ----

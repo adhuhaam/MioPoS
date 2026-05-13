@@ -6,9 +6,13 @@ import { requireAuth, requireRole } from "../lib/session";
 
 const router = Router();
 
+// Public endpoint — returns only id and name for the login outlet selector
 router.get("/outlets", async (_req, res) => {
   try {
-    const outlets = await db.select().from(outletsTable).orderBy(outletsTable.name);
+    const outlets = await db
+      .select({ id: outletsTable.id, name: outletsTable.name })
+      .from(outletsTable)
+      .orderBy(outletsTable.name);
     return res.json(outlets);
   } catch (err) {
     console.error(err);

@@ -1,8 +1,11 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import { db, staffTable, type StaffRole } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
+
+const BCRYPT_ROUNDS = 10;
 
 const router = Router();
 
@@ -63,11 +66,12 @@ router.post("/staff", requireRole("super_admin", "manager"), async (req: Request
       }
     }
 
+    const hashedPin = await bcrypt.hash(pin, BCRYPT_ROUNDS);
     const [member] = await db.insert(staffTable).values({
       outletId: targetOutletId,
       name,
       role,
-      pin,
+      pin: hashedPin,
     }).returning();
     return res.status(201).json(stripPin(member));
   } catch (err) {
@@ -124,7 +128,7 @@ router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req: Re
     if (outletId !== undefined) updates.outletId = outletId ?? null;
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
-    if (pin !== undefined) updates.pin = pin;
+    if (pin !== undefined) updates.pin = await bcrypt.hash(pin, BCRYPT_ROUNDS);
 
     const [member] = await db.update(staffTable).set(updates).where(eq(staffTable.id, id)).returning();
     if (!member) return res.status(404).json({ error: "Not found" });

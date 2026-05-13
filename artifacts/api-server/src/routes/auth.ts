@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import { db, staffTable, outletsTable } from "@workspace/db";
 
 const router = Router();
@@ -24,22 +25,24 @@ router.post("/auth/login", async (req, res) => {
     });
     if (!outlet) return res.status(401).json({ error: "Invalid credentials" });
 
-    let staff = await db.query.staffTable.findFirst({
-      where: and(
-        eq(staffTable.outletId, outletId),
-        eq(staffTable.pin, pin)
-      ),
+    // Find staff by outlet (PIN verified separately to use bcrypt)
+    const candidates = await db.query.staffTable.findMany({
+      where: eq(staffTable.outletId, outletId),
     });
+    let staff = null;
+    for (const c of candidates) {
+      if (await bcrypt.compare(pin, c.pin)) { staff = c; break; }
+    }
 
     if (!staff) {
-      const superAdmin = await db.query.staffTable.findFirst({
-        where: and(
-          eq(staffTable.role, "super_admin"),
-          eq(staffTable.pin, pin)
-        ),
+      // Fall back to super_admin who can log into any outlet
+      const superAdmins = await db.query.staffTable.findMany({
+        where: eq(staffTable.role, "super_admin"),
       });
-      if (!superAdmin) return res.status(401).json({ error: "Invalid credentials" });
-      staff = superAdmin;
+      for (const sa of superAdmins) {
+        if (await bcrypt.compare(pin, sa.pin)) { staff = sa; break; }
+      }
+      if (!staff) return res.status(401).json({ error: "Invalid credentials" });
     }
 
     req.session.staffId = staff.id;
