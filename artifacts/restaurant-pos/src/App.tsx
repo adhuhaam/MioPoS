@@ -18,6 +18,7 @@ import Reports from "./pages/reports";
 import Staff from "./pages/staff";
 import Settings from "./pages/settings";
 import Customers from "./pages/customers";
+import QrMenu from "./pages/qr-menu";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -28,7 +29,7 @@ function KitchenRedirect() {
   return null;
 }
 
-function Router() {
+function PrivateRouter() {
   const { auth } = useAuth();
   const role = auth?.staff.role;
 
@@ -61,15 +62,28 @@ function Router() {
   );
 }
 
+function AppRouter() {
+  return (
+    <Switch>
+      {/* Public routes — no authentication required */}
+      <Route path="/qr/:outletId" component={QrMenu} />
+      {/* Private routes — require authentication */}
+      <Route>
+        <AuthProvider>
+          <PrivateRouter />
+        </AuthProvider>
+      </Route>
+    </Switch>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-        </AuthProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <AppRouter />
+        </WouterRouter>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
