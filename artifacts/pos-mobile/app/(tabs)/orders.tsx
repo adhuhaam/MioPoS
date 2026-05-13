@@ -87,24 +87,39 @@ function buildReceiptHtml(order: any, outletName: string): string {
   const timeFee = parseFloat(order?.timeFee ?? "0");
   const total = parseFloat(order?.total ?? "0");
   const tableName = order?.tableName || `Table ${order?.tableId}`;
-  const date = order?.createdAt ? new Date(order.createdAt).toLocaleString() : "";
+
+  const dt = order?.createdAt ? new Date(order.createdAt) : new Date();
+  const dateStr = dt.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric" });
+  const timeStr = dt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+
+  const DASH = "--------------------------------------------------------";
+  const STAR = "************************************";
 
   const itemRows = items.map((item: any) => {
+    const lineTotal = fmt(parseFloat(item.total ?? "0"));
     const mods = (item.modifiers ?? [])
-      .map((m: any) => `<div class="mod">+ ${m.name}</div>`)
+      .map((m: any) => `<div class="indent">+ ${m.name}</div>`)
       .join("");
+    const notes = item.notes ? `<div class="indent note">${item.notes}</div>` : "";
     return `
-      <tr>
-        <td>${item.quantity}×</td>
-        <td>${item.menuItemName}${mods ? `<div class="mods">${mods}</div>` : ""}${item.notes ? `<div class="note">${item.notes}</div>` : ""}</td>
-        <td class="right">${fmt(item.total)}</td>
-      </tr>`;
+      <div class="item-row">
+        <span class="item-qty">${item.quantity}x</span>
+        <span class="item-name">${item.menuItemName}</span>
+        <span class="item-price">${lineTotal}</span>
+      </div>
+      ${mods}${notes}`;
   }).join("");
 
-  const payRows = payments.map((p: any) => {
-    const method = p.method === "bank_transfer" ? "Bank Transfer" : p.method.charAt(0).toUpperCase() + p.method.slice(1);
-    return `<div class="pay-row"><span>${method}</span><span>${fmt(p.amount)}</span></div>`;
-  }).join("");
+  const paymentBlocks = payments.map((p: any) => {
+    const method = p.method === "bank_transfer"
+      ? "BANK TRANSFER"
+      : p.method.toUpperCase();
+    return `
+      <div class="two-col"><span>PAYMENT:</span><span>${method}</span></div>
+      <div class="two-col"><span>AMOUNT:</span><span>${fmt(p.amount)}</span></div>`;
+  }).join(`<div class="dash">${DASH}</div>`);
+
+  const statusLabel = (order?.status ?? "").toUpperCase();
 
   return `<!DOCTYPE html>
 <html>
@@ -112,54 +127,82 @@ function buildReceiptHtml(order: any, outletName: string): string {
 <meta charset="utf-8"/>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: 'Courier New', monospace; font-size: 13px; color: #111; padding: 16px; max-width: 380px; margin: 0 auto; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+    color: #111;
+    padding: 20px 18px;
+    max-width: 360px;
+    margin: 0 auto;
+    line-height: 1.5;
+  }
+  .top-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 14px; }
   .center { text-align: center; }
-  .outlet { font-size: 18px; font-weight: bold; margin-bottom: 2px; }
-  .divider { border-top: 1px dashed #999; margin: 10px 0; }
-  .info { font-size: 12px; color: #444; margin-bottom: 2px; }
-  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
-  td { padding: 5px 2px; vertical-align: top; }
-  td:first-child { width: 28px; color: #555; }
-  td:last-child { width: 70px; text-align: right; font-weight: 600; }
-  .right { text-align: right; }
-  .mods, .mod { color: #666; font-size: 11px; }
-  .note { color: #888; font-style: italic; font-size: 11px; }
-  .summary { width: 100%; }
-  .summary tr td { padding: 3px 2px; }
-  .summary .label { color: #555; }
-  .summary .total-row td { font-weight: bold; font-size: 14px; border-top: 1px solid #ccc; padding-top: 6px; }
-  .pay-row { display: flex; justify-content: space-between; padding: 3px 0; }
-  .footer { text-align: center; font-size: 11px; color: #888; margin-top: 14px; }
-  .status { display: inline-block; padding: 2px 10px; border: 1px solid #ccc; border-radius: 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .outlet-name { font-size: 15px; font-weight: bold; margin-bottom: 2px; }
+  .outlet-sub { font-size: 12px; margin-bottom: 2px; }
+  .terminal { font-size: 12px; text-transform: uppercase; margin: 10px 0 4px; }
+  .order-num { font-size: 19px; font-weight: bold; letter-spacing: 0.5px; margin: 6px 0 10px; }
+  .payment-hdr { font-size: 22px; font-weight: bold; margin: 8px 0 14px; letter-spacing: 1px; }
+  .dash { font-size: 11px; color: #555; margin: 10px 0; overflow: hidden; white-space: nowrap; }
+  .item-row { display: flex; align-items: baseline; gap: 4px; margin: 4px 0; }
+  .item-qty  { flex-shrink: 0; width: 26px; }
+  .item-name { flex: 1; }
+  .item-price { flex-shrink: 0; font-weight: 600; }
+  .indent { padding-left: 30px; font-size: 11px; color: #555; }
+  .note { font-style: italic; }
+  .summary-row { display: flex; justify-content: flex-end; gap: 8px; margin: 3px 0; font-size: 13px; }
+  .summary-row .slabel { text-align: right; min-width: 180px; text-transform: uppercase; }
+  .two-col { display: flex; justify-content: space-between; margin: 3px 0; font-size: 12px; text-transform: uppercase; }
+  .approved { text-align: center; font-weight: bold; font-size: 13px; margin: 8px 0; }
+  .stars { text-align: center; font-size: 11px; color: #333; overflow: hidden; white-space: nowrap; margin: 6px 0 2px; }
+  .amount-paid-label { font-size: 16px; font-weight: bold; text-align: center; text-transform: uppercase; margin: 4px 0 0; }
+  .amount-paid-value { font-size: 22px; font-weight: bold; text-align: center; margin: 2px 0 4px; }
+  .footer { text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-top: 10px; }
 </style>
 </head>
 <body>
-  <div class="center">
-    <div class="outlet">${outletName}</div>
-    <div class="info">Order #${order?.id} · ${tableName}</div>
-    <div class="info">${date}</div>
-    <div style="margin-top:6px"><span class="status">${order?.status ?? ""}</span></div>
+
+  <!-- Date / Time row -->
+  <div class="top-row">
+    <span>${dateStr}</span>
+    <span>${timeStr}</span>
   </div>
-  <div class="divider"></div>
 
-  <table>
-    <tbody>${itemRows}</tbody>
-  </table>
-  <div class="divider"></div>
+  <!-- Outlet header -->
+  <div class="center">
+    <div class="outlet-name">${outletName}</div>
+    <div class="outlet-sub terminal">TABLE NAME: ${tableName}</div>
+    <div class="order-num">ORDER #: ${order?.id}</div>
+    <div class="payment-hdr">RECEIPT</div>
+  </div>
 
-  <table class="summary">
-    <tbody>
-      <tr><td class="label">Subtotal</td><td class="right">${fmt(subtotal)}</td></tr>
-      ${discount > 0 ? `<tr><td class="label">Discount</td><td class="right">-${fmt(discount)}</td></tr>` : ""}
-      ${tax > 0 ? `<tr><td class="label">Tax</td><td class="right">${fmt(tax)}</td></tr>` : ""}
-      ${timeFee > 0 ? `<tr><td class="label">Time Fee</td><td class="right">${fmt(timeFee)}</td></tr>` : ""}
-      <tr class="total-row"><td>TOTAL</td><td class="right">${fmt(total)}</td></tr>
-    </tbody>
-  </table>
+  <!-- Items -->
+  <div>${itemRows}</div>
+  <div class="dash">${DASH}</div>
 
-  ${payRows ? `<div class="divider"></div><div>${payRows}</div>` : ""}
+  <!-- Summary -->
+  <div class="summary-row"><span class="slabel">SUBTOTAL:</span><span>${fmt(subtotal)}</span></div>
+  ${discount > 0 ? `<div class="summary-row"><span class="slabel">DISCOUNT:</span><span>-${fmt(discount)}</span></div>` : ""}
+  ${tax > 0 ? `<div class="summary-row"><span class="slabel">TAX:</span><span>${fmt(tax)}</span></div>` : ""}
+  ${timeFee > 0 ? `<div class="summary-row"><span class="slabel">TIME FEE:</span><span>${fmt(timeFee)}</span></div>` : ""}
+  <div class="summary-row" style="font-weight:bold;font-size:14px;margin-top:4px">
+    <span class="slabel">TOTAL:</span><span>${fmt(total)}</span>
+  </div>
 
-  <div class="footer">Thank you for dining with us!</div>
+  ${payments.length > 0 ? `
+  <div class="dash">${DASH}</div>
+  ${paymentBlocks}
+  <div class="approved">*** ${statusLabel} ***</div>
+  <div class="dash">${DASH}</div>` : ""}
+
+  <!-- Amount paid box -->
+  <div class="stars">${STAR}</div>
+  <div class="amount-paid-label">AMOUNT PAID:</div>
+  <div class="amount-paid-value">${fmt(total)}</div>
+  <div class="stars">${STAR}</div>
+
+  <div class="footer">CUSTOMER COPY</div>
+
 </body>
 </html>`;
 }
