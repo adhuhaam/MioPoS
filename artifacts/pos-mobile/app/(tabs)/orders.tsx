@@ -1,8 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import * as Print from "expo-print";
+import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   FlatList,
   Modal,
@@ -15,8 +17,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { useListOrders, useGetOrder } from "@workspace/api-client-react";
+import { useListOrders, useGetOrder, useUpdateOrder, getListOrdersQueryKey } from "@workspace/api-client-react";
 import type { ListOrdersStatus } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
@@ -207,21 +210,43 @@ function buildReceiptHtml(order: any, outletName: string): string {
 </html>`;
 }
 
+// Status transitions: which statuses can be set from a given status
+const STATUS_TRANSITIONS: Record<string, { label: string; status: string; color: string; icon: string }[]> = {
+  open: [
+    { label: "Mark Billed", status: "billed", color: "#3b82f6", icon: "file-text" },
+    { label: "Cancel",      status: "cancelled", color: "#ef4444", icon: "x-circle" },
+  ],
+  billed: [
+    { label: "Mark Paid",   status: "paid",   color: "#22c55e", icon: "check-circle" },
+    { label: "Reopen",      status: "open",   color: "#f59e0b", icon: "rotate-ccw" },
+    { label: "Cancel",      status: "cancelled", color: "#ef4444", icon: "x-circle" },
+  ],
+  paid: [],
+  cancelled: [],
+};
+
 function OrderDetailSheet({
   orderId,
+  tableId,
   visible,
   onClose,
   outletName,
+  onOrderChanged,
 }: {
   orderId: number | null;
+  tableId: number | null;
   visible: boolean;
   onClose: () => void;
   outletName: string;
+  onOrderChanged: () => void;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const qc = useQueryClient();
   const slideAnim = useRef(new Animated.Value(600)).current;
   const [printing, setPrinting] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -231,9 +256,11 @@ function OrderDetailSheet({
     }
   }, [visible, slideAnim]);
 
-  const { data: order, isLoading } = useGetOrder(orderId!, {
+  const { data: order, isLoading, refetch: refetchOrder } = useGetOrder(orderId!, {
     query: { enabled: !!orderId },
   });
+
+  const { mutateAsync: updateOrder } = useUpdateOrder();
 
   const handlePrint = useCallback(async () => {
     if (!order) return;
@@ -246,6 +273,40 @@ function OrderDetailSheet({
       setPrinting(false);
     }
   }, [order, outletName]);
+
+  const handleStatusChange = useCallback(async (newStatus: string, label: string) => {
+    if (!orderId) return;
+    Alert.alert(
+      `${label}?`,
+      `Change order #${orderId} to ${newStatus}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          style: newStatus === "cancelled" ? "destructive" : "default",
+          onPress: async () => {
+            setStatusChanging(true);
+            try {
+              await updateOrder({ id: orderId, data: { status: newStatus as any } });
+              await refetchOrder();
+              qc.invalidateQueries({ queryKey: getListOrdersQueryKey({}) });
+              onOrderChanged();
+            } catch {
+              Alert.alert("Error", "Failed to update order status");
+            } finally {
+              setStatusChanging(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [orderId, updateOrder, refetchOrder, qc, onOrderChanged]);
+
+  const handleEdit = useCallback(() => {
+    if (!tableId) return;
+    onClose();
+    router.push({ pathname: "/order/[tableId]", params: { tableId: String(tableId) } });
+  }, [tableId, onClose, router]);
 
   const items: any[] = (order as any)?.items ?? [];
   const payments: any[] = (order as any)?.payments ?? [];
@@ -395,6 +456,39 @@ function OrderDetailSheet({
             )}
           </ScrollView>
         )}
+
+        {/* Action bar — edit + status transitions */}
+        {!isLoading && order && (
+          <View style={[s.actionBar, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
+            {/* Edit button — only for open orders */}
+            {order.status === "open" && (
+              <Pressable
+                onPress={handleEdit}
+                style={[s.actionBtn, { backgroundColor: colors.secondary, flex: 1 }]}
+              >
+                <Feather name="edit-2" size={15} color={colors.foreground} />
+                <Text style={[s.actionBtnText, { color: colors.foreground }]}>Edit Order</Text>
+              </Pressable>
+            )}
+
+            {/* Status transition buttons */}
+            {(STATUS_TRANSITIONS[order.status] ?? []).map((t) => (
+              <Pressable
+                key={t.status}
+                onPress={() => handleStatusChange(t.status, t.label)}
+                disabled={statusChanging}
+                style={[s.actionBtn, { backgroundColor: `${t.color}18`, flex: 1, opacity: statusChanging ? 0.5 : 1 }]}
+              >
+                {statusChanging ? (
+                  <ActivityIndicator size="small" color={t.color} />
+                ) : (
+                  <Feather name={t.icon as any} size={15} color={t.color} />
+                )}
+                <Text style={[s.actionBtnText, { color: t.color }]}>{t.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </Animated.View>
     </Modal>
   );
@@ -407,6 +501,7 @@ export default function OrdersScreen() {
   const [statusFilter, setStatusFilter] = useState<ListOrdersStatus | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
   const { data: ordersResponse, isLoading, refetch } = useListOrders(
@@ -425,14 +520,19 @@ export default function OrdersScreen() {
     setRefreshing(false);
   }, [refetch]);
 
-  const openDetail = useCallback((id: number) => {
+  const openDetail = useCallback((id: number, tblId: number) => {
     setSelectedOrderId(id);
+    setSelectedTableId(tblId);
     setSheetVisible(true);
   }, []);
 
   const closeDetail = useCallback(() => {
     setSheetVisible(false);
   }, []);
+
+  const onOrderChanged = useCallback(() => {
+    refetch();
+  }, [refetch]);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -488,7 +588,7 @@ export default function OrdersScreen() {
             const statusColor = STATUS_COLORS[o.status] ?? colors.mutedForeground;
             return (
               <Pressable
-                onPress={() => openDetail(o.id)}
+                onPress={() => openDetail(o.id, o.tableId)}
                 style={({ pressed }) => [
                   s.orderCard,
                   { backgroundColor: colors.card, borderColor: colors.border },
@@ -528,9 +628,11 @@ export default function OrdersScreen() {
 
       <OrderDetailSheet
         orderId={selectedOrderId}
+        tableId={selectedTableId}
         visible={sheetVisible}
         onClose={closeDetail}
         outletName={outlet?.name ?? "Restaurant"}
+        onOrderChanged={onOrderChanged}
       />
     </View>
   );
@@ -619,4 +721,24 @@ const s = StyleSheet.create({
   payAmount: { fontSize: 14, fontWeight: "700" },
 
   createdAt: { fontSize: 12, textAlign: "center", marginTop: 8 },
+
+  actionBar: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    minWidth: 0,
+  },
+  actionBtnText: { fontSize: 13, fontWeight: "700" },
 });
