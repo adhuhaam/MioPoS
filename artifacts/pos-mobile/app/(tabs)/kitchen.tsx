@@ -130,7 +130,7 @@ export default function KitchenScreen() {
       ) : (
         <FlatList
           data={orders}
-          keyExtractor={(o) => String(o.orderId)}
+          keyExtractor={(o) => String(o.id)}
           renderItem={renderItem}
           contentContainerStyle={[
             styles.listContent,
