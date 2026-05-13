@@ -520,6 +520,10 @@ export type ListKitchenOrdersParams = {
   outletId: number;
 };
 
+export type StreamKitchenOrdersParams = {
+  outletId: number;
+};
+
 export type GetOutletReportParams = {
   outletId: number;
   period?: GetOutletReportPeriod;

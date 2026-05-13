@@ -52,6 +52,9 @@ router.post("/staff", requireRole("super_admin", "manager"), async (req: Request
     if (!isRoleAllowed(req.session.role!, role)) {
       return res.status(403).json({ error: "Insufficient permissions to assign this role" });
     }
+    if (!/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: "PIN must be exactly 4 digits" });
+    }
 
     const targetOutletId = outletId ?? null;
     if (req.session.role !== "super_admin") {
@@ -106,6 +109,9 @@ router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req: Re
 
     if (role !== undefined && !isRoleAllowed(req.session.role!, role)) {
       return res.status(403).json({ error: "Insufficient permissions to assign this role" });
+    }
+    if (pin !== undefined && !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: "PIN must be exactly 4 digits" });
     }
 
     if (outletId !== undefined && req.session.role !== "super_admin") {

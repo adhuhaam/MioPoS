@@ -69,6 +69,7 @@ export * from "./staffInputRole";
 export * from "./staffRole";
 export * from "./staffUpdate";
 export * from "./staffUpdateRole";
+export * from "./streamKitchenOrdersParams";
 export * from "./table";
 export * from "./tableInput";
 export * from "./tableInputStatus";

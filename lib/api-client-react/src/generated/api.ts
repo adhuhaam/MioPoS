@@ -64,6 +64,7 @@ import type {
   Staff,
   StaffInput,
   StaffUpdate,
+  StreamKitchenOrdersParams,
   Table,
   TableInput,
   TableUpdate,
@@ -3700,6 +3701,106 @@ export function useListKitchenOrders<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListKitchenOrdersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary SSE stream of active kitchen orders (polls every 5 s)
+ */
+export const getStreamKitchenOrdersUrl = (
+  params: StreamKitchenOrdersParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/kitchen/orders/stream?${stringifiedParams}`
+    : `/api/kitchen/orders/stream`;
+};
+
+export const streamKitchenOrders = async (
+  params: StreamKitchenOrdersParams,
+  options?: RequestInit,
+): Promise<string> => {
+  return customFetch<string>(getStreamKitchenOrdersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getStreamKitchenOrdersQueryKey = (
+  params?: StreamKitchenOrdersParams,
+) => {
+  return [`/api/kitchen/orders/stream`, ...(params ? [params] : [])] as const;
+};
+
+export const getStreamKitchenOrdersQueryOptions = <
+  TData = Awaited<ReturnType<typeof streamKitchenOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params: StreamKitchenOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof streamKitchenOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getStreamKitchenOrdersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof streamKitchenOrders>>
+  > = ({ signal }) =>
+    streamKitchenOrders(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof streamKitchenOrders>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type StreamKitchenOrdersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof streamKitchenOrders>>
+>;
+export type StreamKitchenOrdersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary SSE stream of active kitchen orders (polls every 5 s)
+ */
+
+export function useStreamKitchenOrders<
+  TData = Awaited<ReturnType<typeof streamKitchenOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params: StreamKitchenOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof streamKitchenOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getStreamKitchenOrdersQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

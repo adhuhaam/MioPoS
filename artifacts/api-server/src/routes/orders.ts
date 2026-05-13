@@ -261,6 +261,7 @@ router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res:
 
     const orderItem = await db.query.orderItemsTable.findFirst({ where: eq(orderItemsTable.id, itemId) });
     if (!orderItem) return res.status(404).json({ error: "Item not found" });
+    if (orderItem.orderId !== orderId) return res.status(403).json({ error: "Item does not belong to this order" });
 
     const updates: Record<string, unknown> = {};
     if (quantity !== undefined) {
@@ -303,6 +304,10 @@ router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager",
     if (!assertOutletAccess(req, order.outletId)) {
       return res.status(403).json({ error: "Forbidden" });
     }
+
+    const orderItem = await db.query.orderItemsTable.findFirst({ where: eq(orderItemsTable.id, itemId) });
+    if (!orderItem) return res.status(404).json({ error: "Item not found" });
+    if (orderItem.orderId !== orderId) return res.status(403).json({ error: "Item does not belong to this order" });
 
     await db.delete(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
     await db.delete(orderItemsTable).where(eq(orderItemsTable.id, itemId));

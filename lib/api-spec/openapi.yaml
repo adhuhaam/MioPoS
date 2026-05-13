@@ -886,6 +886,25 @@ paths:
                 items:
                   $ref: "#/components/schemas/KitchenOrder"
 
+  /kitchen/orders/stream:
+    get:
+      operationId: streamKitchenOrders
+      tags: [orders]
+      summary: SSE stream of active kitchen orders (polls every 5 s)
+      parameters:
+        - name: outletId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Server-Sent Events stream; each event data is a JSON array of KitchenOrder
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
   # ── Payments ──────────────────────────────────────────────────────────────
   /orders/{id}/payments:
     get:

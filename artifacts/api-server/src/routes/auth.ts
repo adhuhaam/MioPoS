@@ -15,6 +15,9 @@ router.post("/auth/login", async (req, res) => {
     if (!outletId || !pin) {
       return res.status(400).json({ error: "outletId and pin are required" });
     }
+    if (!/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: "PIN must be exactly 4 digits" });
+    }
 
     const outlet = await db.query.outletsTable.findFirst({
       where: eq(outletsTable.id, outletId),

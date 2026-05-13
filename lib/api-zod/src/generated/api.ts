@@ -742,6 +742,13 @@ export const ListKitchenOrdersResponse = zod.array(
 );
 
 /**
+ * @summary SSE stream of active kitchen orders (polls every 5 s)
+ */
+export const StreamKitchenOrdersQueryParams = zod.object({
+  outletId: zod.coerce.number(),
+});
+
+/**
  * @summary List all payment legs recorded for an order
  */
 export const ListOrderPaymentsParams = zod.object({

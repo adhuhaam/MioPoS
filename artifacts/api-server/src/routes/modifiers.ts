@@ -6,6 +6,8 @@ import {
   modifierGroupsTable,
   modifierOptionsTable,
   orderItemModifiersTable,
+  ordersTable,
+  orderItemsTable,
   type ModifierGroup,
   type ModifierOption,
 } from "@workspace/db";
@@ -180,8 +182,21 @@ router.delete("/menu/modifiers/:groupId/options/:optionId", requireRole("super_a
 
 router.post("/orders/:id/items/:itemId/modifiers", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
   try {
+    const orderId = parseInt(req.params.id as string);
     const itemId = parseInt(req.params.itemId as string);
     const { modifierOptionId } = req.body as { modifierOptionId: number };
+
+    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const orderItem = await db.query.orderItemsTable.findFirst({ where: eq(orderItemsTable.id, itemId) });
+    if (!orderItem) return res.status(404).json({ error: "Order item not found" });
+    if (orderItem.orderId !== orderId) {
+      return res.status(403).json({ error: "Item does not belong to this order" });
+    }
 
     const option = await db.query.modifierOptionsTable.findFirst({ where: eq(modifierOptionsTable.id, modifierOptionId) });
     if (!option) return res.status(404).json({ error: "Modifier option not found" });
