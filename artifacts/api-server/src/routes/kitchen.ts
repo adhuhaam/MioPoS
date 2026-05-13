@@ -36,7 +36,7 @@ async function fetchKitchenOrders(outletId: number | undefined) {
   return kitchenOrders.filter(o => o.items.length > 0);
 }
 
-router.get("/kitchen/orders", requireRole("super_admin", "manager", "kitchen"), async (req: Request, res: Response) => {
+router.get("/kitchen/orders", requireRole("super_admin", "manager", "kitchen", "cashier"), async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const outletId = resolveOutletId(req, requestedOutletId);
@@ -48,7 +48,7 @@ router.get("/kitchen/orders", requireRole("super_admin", "manager", "kitchen"), 
   }
 });
 
-router.get("/kitchen/orders/stream", requireRole("super_admin", "manager", "kitchen"), async (req: Request, res: Response) => {
+router.get("/kitchen/orders/stream", requireRole("super_admin", "manager", "kitchen", "cashier"), async (req: Request, res: Response) => {
   const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
   const outletId = resolveOutletId(req, requestedOutletId);
 
