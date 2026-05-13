@@ -9,13 +9,16 @@ declare module "express-session" {
   }
 }
 
+const isProd = process.env.NODE_ENV === "production";
+
 export const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET ?? "chainpos-dev-secret-change-in-production",
+  secret: process.env.SESSION_SECRET ?? (isProd ? (() => { throw new Error("SESSION_SECRET must be set in production"); })() : "chainpos-dev-secret"),
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: false,
+    secure: isProd,
+    sameSite: "lax",
     maxAge: 8 * 60 * 60 * 1000,
   },
 });

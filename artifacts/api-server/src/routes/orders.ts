@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq, and, desc, sum } from "drizzle-orm";
+import { eq, and, desc, sum, gte, lte } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
   db,
@@ -51,15 +51,26 @@ router.get("/orders", requireAuth, async (req: Request, res: Response) => {
     const outletId = resolveOutletId(req, requestedOutletId);
     const status = req.query.status as string | undefined;
     const tableId = req.query.tableId ? parseInt(req.query.tableId as string) : undefined;
+    const dateFrom = req.query.dateFrom as string | undefined;
+    const dateTo = req.query.dateTo as string | undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 200;
+    const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
 
     const conditions: SQL[] = [];
     if (outletId) conditions.push(eq(ordersTable.outletId, outletId));
     if (status) conditions.push(eq(ordersTable.status, status as OrderStatus));
     if (tableId) conditions.push(eq(ordersTable.tableId, tableId));
+    if (dateFrom) conditions.push(gte(ordersTable.createdAt, new Date(dateFrom)));
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      conditions.push(lte(ordersTable.createdAt, end));
+    }
 
+    const baseQuery = db.select().from(ordersTable);
     const ordersRaw = conditions.length
-      ? await db.select().from(ordersTable).where(and(...conditions)).orderBy(desc(ordersTable.createdAt))
-      : await db.select().from(ordersTable).orderBy(desc(ordersTable.createdAt));
+      ? await baseQuery.where(and(...conditions)).orderBy(desc(ordersTable.createdAt)).limit(limit).offset(offset)
+      : await baseQuery.orderBy(desc(ordersTable.createdAt)).limit(limit).offset(offset);
 
     const ordersWithItems = await Promise.all(ordersRaw.map(async (order) => {
       const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));

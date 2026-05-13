@@ -18,13 +18,16 @@ export default function Orders() {
   const outletId = auth!.outlet.id;
   const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  const listParams = statusFilter !== "all"
-    ? { outletId, status: statusFilter }
-    : { outletId };
+  const listParams: Record<string, unknown> = { outletId };
+  if (statusFilter !== "all") listParams.status = statusFilter;
+  if (dateFrom) listParams.dateFrom = dateFrom;
+  if (dateTo) listParams.dateTo = dateTo;
 
-  const { data, isLoading } = useListOrders(listParams, {
-    query: { queryKey: getListOrdersQueryKey(listParams) }
+  const { data, isLoading } = useListOrders(listParams as Parameters<typeof useListOrders>[0], {
+    query: { queryKey: getListOrdersQueryKey(listParams as Parameters<typeof useListOrders>[0]) }
   });
 
   const orders: Order[] = data?.orders ?? [];
@@ -43,8 +46,8 @@ export default function Orders() {
         <p className="text-muted-foreground mt-1">Order history and status</p>
       </div>
 
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-wrap gap-3">
+        <div className="relative flex-1 min-w-48 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             className="pl-9"
@@ -66,6 +69,26 @@ export default function Orders() {
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground whitespace-nowrap">From</label>
+          <Input
+            type="date"
+            className="w-36"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            data-testid="input-date-from"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground whitespace-nowrap">To</label>
+          <Input
+            type="date"
+            className="w-36"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            data-testid="input-date-to"
+          />
+        </div>
       </div>
 
       {isLoading ? (

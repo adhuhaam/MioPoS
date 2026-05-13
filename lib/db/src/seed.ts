@@ -12,154 +12,178 @@ const db = drizzle(pool, { schema });
 async function seed() {
   console.log("Seeding database...");
 
-  const [outlet1] = await db.insert(schema.outletsTable).values({
-    name: "Downtown Branch",
-    address: "123 Main Street, Downtown",
-    phone: "+1 555-0101",
-    taxRate: "8.5",
-    currency: "USD",
-  }).returning();
+  // Clear existing data (order matters for FK constraints)
+  await db.delete(schema.menuItemModifierGroupsTable);
+  await db.delete(schema.orderItemModifiersTable);
+  await db.delete(schema.orderItemsTable);
+  await db.delete(schema.ordersTable);
+  await db.delete(schema.modifierOptionsTable);
+  await db.delete(schema.modifierGroupsTable);
+  await db.delete(schema.menuItemsTable);
+  await db.delete(schema.menuCategoriesTable);
+  await db.delete(schema.staffTable);
+  await db.delete(schema.tablesTable);
+  await db.delete(schema.outletsTable);
 
-  const [outlet2] = await db.insert(schema.outletsTable).values({
-    name: "Midtown Branch",
-    address: "456 Park Avenue, Midtown",
-    phone: "+1 555-0202",
-    taxRate: "8.5",
-    currency: "USD",
-  }).returning();
+  // Exactly 2 demo outlets
+  const [downtown, airport] = await db
+    .insert(schema.outletsTable)
+    .values([
+      { name: "Downtown Branch", address: "123 Main Street, Downtown", phone: "+1 555-0101", taxRate: "8.00", currency: "USD" },
+      { name: "Airport Branch",  address: "Terminal 2, International Airport", phone: "+1 555-0202", taxRate: "10.00", currency: "USD" },
+    ])
+    .returning();
 
-  const [outlet3] = await db.insert(schema.outletsTable).values({
-    name: "Airport Lounge",
-    address: "Terminal 2, International Airport",
-    phone: "+1 555-0303",
-    taxRate: "10.0",
-    currency: "USD",
-  }).returning();
+  console.log(`Created outlets: ${downtown.id} (Downtown), ${airport.id} (Airport)`);
 
-  console.log("Outlets created:", outlet1.id, outlet2.id, outlet3.id);
-
-  const [superAdmin] = await db.insert(schema.staffTable).values({
-    outletId: null,
-    name: "Alex Chen",
-    role: "super_admin",
-    pin: "1234",
-  }).returning();
-
-  const [mgr1] = await db.insert(schema.staffTable).values({
-    outletId: outlet1.id,
-    name: "Maria Garcia",
-    role: "manager",
-    pin: "2222",
-  }).returning();
-
-  const [cashier1] = await db.insert(schema.staffTable).values({
-    outletId: outlet1.id,
-    name: "James Wilson",
-    role: "cashier",
-    pin: "3333",
-  }).returning();
-
-  const [kitchen1] = await db.insert(schema.staffTable).values({
-    outletId: outlet1.id,
-    name: "Sofia Rossi",
-    role: "kitchen",
-    pin: "4444",
-  }).returning();
-
-  await db.insert(schema.staffTable).values([
-    { outletId: outlet2.id, name: "Liam Johnson", role: "manager", pin: "5555" },
-    { outletId: outlet2.id, name: "Emma Brown", role: "cashier", pin: "6666" },
-    { outletId: outlet3.id, name: "Noah Davis", role: "manager", pin: "7777" },
-    { outletId: outlet3.id, name: "Olivia Lee", role: "cashier", pin: "8888" },
-  ]);
-
-  console.log("Staff created");
-
-  const [cat1] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet1.id, name: "Starters", sortOrder: 0 }).returning();
-  const [cat2] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet1.id, name: "Mains", sortOrder: 1 }).returning();
-  const [cat3] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet1.id, name: "Desserts", sortOrder: 2 }).returning();
-  const [cat4] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet1.id, name: "Drinks", sortOrder: 3 }).returning();
-
-  await db.insert(schema.menuItemsTable).values([
-    { categoryId: cat1.id, outletId: outlet1.id, name: "Garlic Bread", description: "Toasted with herb butter", price: "6.50" },
-    { categoryId: cat1.id, outletId: outlet1.id, name: "Caesar Salad", description: "Romaine, parmesan, croutons", price: "12.00" },
-    { categoryId: cat1.id, outletId: outlet1.id, name: "Soup of the Day", description: "Ask your server", price: "8.50" },
-    { categoryId: cat1.id, outletId: outlet1.id, name: "Bruschetta", description: "Tomato, basil, mozzarella", price: "9.00" },
-    { categoryId: cat2.id, outletId: outlet1.id, name: "Grilled Salmon", description: "With lemon butter sauce", price: "28.00" },
-    { categoryId: cat2.id, outletId: outlet1.id, name: "Ribeye Steak", description: "12oz, with fries", price: "42.00" },
-    { categoryId: cat2.id, outletId: outlet1.id, name: "Pasta Carbonara", description: "Pancetta, egg, pecorino", price: "18.00" },
-    { categoryId: cat2.id, outletId: outlet1.id, name: "Margherita Pizza", description: "San Marzano tomatoes, buffalo mozzarella", price: "22.00" },
-    { categoryId: cat2.id, outletId: outlet1.id, name: "Chicken Parmigiana", description: "Crumbed chicken, napolitana sauce", price: "24.00" },
-    { categoryId: cat3.id, outletId: outlet1.id, name: "Tiramisu", description: "Classic Italian dessert", price: "9.00" },
-    { categoryId: cat3.id, outletId: outlet1.id, name: "Chocolate Lava Cake", description: "Served with vanilla ice cream", price: "11.00" },
-    { categoryId: cat3.id, outletId: outlet1.id, name: "Panna Cotta", description: "Raspberry coulis", price: "8.00" },
-    { categoryId: cat4.id, outletId: outlet1.id, name: "Sparkling Water", description: "500ml", price: "4.00" },
-    { categoryId: cat4.id, outletId: outlet1.id, name: "House Wine (Glass)", description: "Red or white", price: "10.00" },
-    { categoryId: cat4.id, outletId: outlet1.id, name: "Craft Beer", description: "Local brewery selection", price: "8.00" },
-    { categoryId: cat4.id, outletId: outlet1.id, name: "Soft Drink", description: "Coke, Sprite, OJ", price: "4.50" },
-  ]);
-
-  const [mcat1] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet2.id, name: "Appetizers", sortOrder: 0 }).returning();
-  const [mcat2] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet2.id, name: "Mains", sortOrder: 1 }).returning();
-  const [mcat3] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet2.id, name: "Beverages", sortOrder: 2 }).returning();
-
-  await db.insert(schema.menuItemsTable).values([
-    { categoryId: mcat1.id, outletId: outlet2.id, name: "Spring Rolls", price: "8.00" },
-    { categoryId: mcat1.id, outletId: outlet2.id, name: "Calamari", price: "14.00" },
-    { categoryId: mcat2.id, outletId: outlet2.id, name: "Beef Burger", description: "Double patty, cheese", price: "20.00" },
-    { categoryId: mcat2.id, outletId: outlet2.id, name: "Fish & Chips", price: "18.00" },
-    { categoryId: mcat2.id, outletId: outlet2.id, name: "Veggie Bowl", price: "16.00" },
-    { categoryId: mcat3.id, outletId: outlet2.id, name: "Fresh Juice", price: "6.00" },
-    { categoryId: mcat3.id, outletId: outlet2.id, name: "Coffee", price: "4.50" },
-  ]);
-
-  const [acat1] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet3.id, name: "Snacks", sortOrder: 0 }).returning();
-  const [acat2] = await db.insert(schema.menuCategoriesTable).values({ outletId: outlet3.id, name: "Drinks", sortOrder: 1 }).returning();
-
-  await db.insert(schema.menuItemsTable).values([
-    { categoryId: acat1.id, outletId: outlet3.id, name: "Mixed Nuts", price: "7.00" },
-    { categoryId: acat1.id, outletId: outlet3.id, name: "Cheese Plate", price: "16.00" },
-    { categoryId: acat2.id, outletId: outlet3.id, name: "Bottled Water", price: "3.00" },
-    { categoryId: acat2.id, outletId: outlet3.id, name: "Cocktail", description: "Ask our bartender", price: "14.00" },
-  ]);
-
-  console.log("Menu created");
-
+  // Exactly 6 tables per outlet
   await db.insert(schema.tablesTable).values([
-    { outletId: outlet1.id, name: "Table 1", capacity: 2 },
-    { outletId: outlet1.id, name: "Table 2", capacity: 4 },
-    { outletId: outlet1.id, name: "Table 3", capacity: 4 },
-    { outletId: outlet1.id, name: "Table 4", capacity: 6 },
-    { outletId: outlet1.id, name: "Table 5", capacity: 6 },
-    { outletId: outlet1.id, name: "Table 6", capacity: 8 },
-    { outletId: outlet1.id, name: "Bar 1", capacity: 2 },
-    { outletId: outlet1.id, name: "Bar 2", capacity: 2 },
-    { outletId: outlet1.id, name: "Patio 1", capacity: 4 },
-    { outletId: outlet1.id, name: "Patio 2", capacity: 4 },
-    { outletId: outlet2.id, name: "Table 1", capacity: 2 },
-    { outletId: outlet2.id, name: "Table 2", capacity: 4 },
-    { outletId: outlet2.id, name: "Table 3", capacity: 4 },
-    { outletId: outlet2.id, name: "Table 4", capacity: 6 },
-    { outletId: outlet2.id, name: "Table 5", capacity: 8 },
-    { outletId: outlet3.id, name: "Lounge A", capacity: 4 },
-    { outletId: outlet3.id, name: "Lounge B", capacity: 4 },
-    { outletId: outlet3.id, name: "Bar 1", capacity: 2 },
-    { outletId: outlet3.id, name: "Bar 2", capacity: 2 },
+    { outletId: downtown.id, name: "T1" },
+    { outletId: downtown.id, name: "T2" },
+    { outletId: downtown.id, name: "T3" },
+    { outletId: downtown.id, name: "T4" },
+    { outletId: downtown.id, name: "T5" },
+    { outletId: downtown.id, name: "T6" },
+    { outletId: airport.id, name: "T1" },
+    { outletId: airport.id, name: "T2" },
+    { outletId: airport.id, name: "T3" },
+    { outletId: airport.id, name: "T4" },
+    { outletId: airport.id, name: "T5" },
+    { outletId: airport.id, name: "T6" },
+  ]);
+  console.log("Created 6 tables per outlet");
+
+  // Staff — full role coverage per outlet plus one super_admin
+  await db.insert(schema.staffTable).values([
+    { outletId: null,          name: "Super Admin",       role: "super_admin", pin: "0000" },
+    { outletId: downtown.id,   name: "Downtown Manager",  role: "manager",     pin: "1111" },
+    { outletId: downtown.id,   name: "Downtown Cashier",  role: "cashier",     pin: "2222" },
+    { outletId: downtown.id,   name: "Downtown Kitchen",  role: "kitchen",     pin: "3333" },
+    { outletId: airport.id,    name: "Airport Manager",   role: "manager",     pin: "4444" },
+    { outletId: airport.id,    name: "Airport Cashier",   role: "cashier",     pin: "5555" },
+    { outletId: airport.id,    name: "Airport Kitchen",   role: "kitchen",     pin: "6666" },
+  ]);
+  console.log("Created staff");
+
+  // ---- Downtown menu ----
+  const [dtStarters, dtMains, dtDrinks, dtDesserts] = await db
+    .insert(schema.menuCategoriesTable)
+    .values([
+      { outletId: downtown.id, name: "Starters",  sortOrder: 1 },
+      { outletId: downtown.id, name: "Mains",     sortOrder: 2 },
+      { outletId: downtown.id, name: "Drinks",    sortOrder: 3 },
+      { outletId: downtown.id, name: "Desserts",  sortOrder: 4 },
+    ])
+    .returning();
+
+  const dtMenuItems = await db
+    .insert(schema.menuItemsTable)
+    .values([
+      { categoryId: dtStarters.id, outletId: downtown.id, name: "Garlic Bread",       price: "6.50" },
+      { categoryId: dtStarters.id, outletId: downtown.id, name: "Caesar Salad",       price: "12.00" },
+      { categoryId: dtMains.id,    outletId: downtown.id, name: "Grilled Salmon",     price: "28.00" },
+      { categoryId: dtMains.id,    outletId: downtown.id, name: "Ribeye Steak",       price: "42.00" },
+      { categoryId: dtMains.id,    outletId: downtown.id, name: "Pasta Carbonara",    price: "18.00" },
+      { categoryId: dtMains.id,    outletId: downtown.id, name: "Margherita Pizza",   price: "22.00" },
+      { categoryId: dtDrinks.id,   outletId: downtown.id, name: "Sparkling Water",    price: "4.00" },
+      { categoryId: dtDrinks.id,   outletId: downtown.id, name: "House Wine",         price: "10.00" },
+      { categoryId: dtDrinks.id,   outletId: downtown.id, name: "Soft Drink",         price: "4.50" },
+      { categoryId: dtDesserts.id, outletId: downtown.id, name: "Tiramisu",           price: "9.00" },
+      { categoryId: dtDesserts.id, outletId: downtown.id, name: "Chocolate Lava Cake",price: "11.00" },
+    ])
+    .returning();
+
+  // Downtown modifier groups
+  const [dtSize, dtExtras] = await db
+    .insert(schema.modifierGroupsTable)
+    .values([
+      { outletId: downtown.id, name: "Size",    required: true,  multiSelect: false },
+      { outletId: downtown.id, name: "Add-ons", required: false, multiSelect: true  },
+    ])
+    .returning();
+
+  await db.insert(schema.modifierOptionsTable).values([
+    { groupId: dtSize.id,   name: "Regular",      priceAdjustment: "0.00" },
+    { groupId: dtSize.id,   name: "Large",         priceAdjustment: "2.50" },
+    { groupId: dtExtras.id, name: "Extra Cheese",  priceAdjustment: "1.00" },
+    { groupId: dtExtras.id, name: "Bacon Strip",   priceAdjustment: "1.50" },
+    { groupId: dtExtras.id, name: "Avocado",       priceAdjustment: "2.00" },
   ]);
 
-  console.log("Tables created");
-  console.log("Seed complete!");
-  console.log("");
-  console.log("Login credentials:");
-  console.log("  Super Admin - Alex Chen: outlet = any, PIN = 1234");
-  console.log("  Manager (Downtown) - Maria Garcia: outlet = Downtown Branch, PIN = 2222");
-  console.log("  Cashier (Downtown) - James Wilson: outlet = Downtown Branch, PIN = 3333");
-  console.log("  Kitchen (Downtown) - Sofia Rossi: outlet = Downtown Branch, PIN = 4444");
+  // Assign Size + Add-ons to all mains; Size only to drinks
+  const dtMainItems  = dtMenuItems.filter(i => i.categoryId === dtMains.id);
+  const dtDrinkItems = dtMenuItems.filter(i => i.categoryId === dtDrinks.id);
 
-  await pool.end();
+  await db.insert(schema.menuItemModifierGroupsTable).values([
+    ...dtMainItems.flatMap(item => [
+      { menuItemId: item.id, modifierGroupId: dtSize.id   },
+      { menuItemId: item.id, modifierGroupId: dtExtras.id },
+    ]),
+    ...dtDrinkItems.map(item => ({ menuItemId: item.id, modifierGroupId: dtSize.id })),
+  ]);
+
+  // ---- Airport menu ----
+  const [apMains, apDrinks, apDesserts] = await db
+    .insert(schema.menuCategoriesTable)
+    .values([
+      { outletId: airport.id, name: "Mains",    sortOrder: 1 },
+      { outletId: airport.id, name: "Drinks",   sortOrder: 2 },
+      { outletId: airport.id, name: "Desserts", sortOrder: 3 },
+    ])
+    .returning();
+
+  const apMenuItems = await db
+    .insert(schema.menuItemsTable)
+    .values([
+      { categoryId: apMains.id,    outletId: airport.id, name: "Club Sandwich",   price: "13.50" },
+      { categoryId: apMains.id,    outletId: airport.id, name: "Caesar Salad",    price: "11.00" },
+      { categoryId: apMains.id,    outletId: airport.id, name: "Pasta Marinara",  price: "15.00" },
+      { categoryId: apMains.id,    outletId: airport.id, name: "Veggie Bowl",     price: "12.00" },
+      { categoryId: apDrinks.id,   outletId: airport.id, name: "Flat White",      price: "5.50"  },
+      { categoryId: apDrinks.id,   outletId: airport.id, name: "Smoothie",        price: "6.50"  },
+      { categoryId: apDrinks.id,   outletId: airport.id, name: "Sparkling Water", price: "3.00"  },
+      { categoryId: apDesserts.id, outletId: airport.id, name: "Fruit Tart",      price: "6.00"  },
+      { categoryId: apDesserts.id, outletId: airport.id, name: "Brownie",         price: "4.50"  },
+    ])
+    .returning();
+
+  // Airport modifier groups
+  const [apTemp, apMilk] = await db
+    .insert(schema.modifierGroupsTable)
+    .values([
+      { outletId: airport.id, name: "Temperature", required: false, multiSelect: false },
+      { outletId: airport.id, name: "Milk Type",   required: false, multiSelect: false },
+    ])
+    .returning();
+
+  await db.insert(schema.modifierOptionsTable).values([
+    { groupId: apTemp.id, name: "Hot",        priceAdjustment: "0.00" },
+    { groupId: apTemp.id, name: "Cold",       priceAdjustment: "0.00" },
+    { groupId: apMilk.id, name: "Full Cream", priceAdjustment: "0.00" },
+    { groupId: apMilk.id, name: "Oat Milk",   priceAdjustment: "0.50" },
+    { groupId: apMilk.id, name: "Soy Milk",   priceAdjustment: "0.50" },
+  ]);
+
+  // Assign Temperature + Milk Type to airport drinks
+  const apDrinkItems = apMenuItems.filter(i => i.categoryId === apDrinks.id);
+  await db.insert(schema.menuItemModifierGroupsTable).values(
+    apDrinkItems.flatMap(item => [
+      { menuItemId: item.id, modifierGroupId: apTemp.id },
+      { menuItemId: item.id, modifierGroupId: apMilk.id },
+    ])
+  );
+
+  console.log("Menu, modifiers, and assignments created");
+  console.log("\nSeed complete! Demo credentials:");
+  console.log("  Super Admin        — any outlet,       PIN: 0000");
+  console.log("  Downtown Manager   — Downtown Branch,  PIN: 1111");
+  console.log("  Downtown Cashier   — Downtown Branch,  PIN: 2222");
+  console.log("  Downtown Kitchen   — Downtown Branch,  PIN: 3333");
+  console.log("  Airport Manager    — Airport Branch,   PIN: 4444");
+  console.log("  Airport Cashier    — Airport Branch,   PIN: 5555");
+  console.log("  Airport Kitchen    — Airport Branch,   PIN: 6666");
 }
 
-seed().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+seed()
+  .catch(err => { console.error(err); process.exit(1); })
+  .finally(() => pool.end());

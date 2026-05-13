@@ -1,4 +1,5 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -20,6 +21,12 @@ import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
 
+function KitchenRedirect() {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation("/kitchen"); }, [setLocation]);
+  return null;
+}
+
 function Router() {
   const { auth } = useAuth();
   const role = auth?.staff.role;
@@ -36,7 +43,7 @@ function Router() {
   return (
     <SidebarLayout>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={role === "kitchen" ? KitchenRedirect : Dashboard} />
         {role === "super_admin" && <Route path="/outlets" component={Outlets} />}
         {(role === "super_admin" || role === "manager") && <Route path="/menu" component={Menu} />}
         {(role === "super_admin" || role === "manager" || role === "cashier") && <Route path="/tables" component={Tables} />}

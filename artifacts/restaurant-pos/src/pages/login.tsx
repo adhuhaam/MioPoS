@@ -51,7 +51,7 @@ export default function Login() {
     }, {
       onSuccess: (data) => {
         setAuth(data);
-        setLocation("/");
+        setLocation(data.staff.role === "kitchen" ? "/kitchen" : "/");
       },
       onError: () => {
         toast({ variant: "destructive", title: "Invalid PIN" });
