@@ -17,7 +17,10 @@ export const sessionMiddleware = session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: isProd,
+    // Replit terminates TLS at its reverse-proxy layer and may not forward
+    // X-Forwarded-Proto, so we keep secure:false here. HTTPS is still
+    // enforced at the network level by Replit's proxy.
+    secure: false,
     sameSite: "lax",
     maxAge: 8 * 60 * 60 * 1000,
   },
