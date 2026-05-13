@@ -162,7 +162,7 @@ export default function OrderScreen() {
   // ── Add menu item ─────────────────────────────────────────────────────────
   const handleAddItem = useCallback(
     async (item: MenuItem) => {
-      if (!item.available || isBilled) return;
+      if (!item.available || isBilled || openLoading) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       try {
         const orderId = await ensureOrder();

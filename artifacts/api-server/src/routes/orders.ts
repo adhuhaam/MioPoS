@@ -120,6 +120,19 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
       return res.status(400).json({ error: "Table does not belong to this outlet" });
     }
 
+    // Return existing open order for this table instead of creating a duplicate
+    const existingOpen = await db.query.ordersTable.findFirst({
+      where: and(
+        eq(ordersTable.tableId, tableId),
+        eq(ordersTable.status, "open")
+      ),
+    });
+    if (existingOpen) {
+      const items = await itemsWithModifiers(existingOpen.id);
+      const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, existingOpen.id));
+      return res.status(200).json({ ...existingOpen, items, payments, tableName: table.name ?? "" });
+    }
+
     const now = new Date();
     const [order] = await db.insert(ordersTable).values({
       outletId,
@@ -133,7 +146,7 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
     await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, tableId));
 
     broadcast(outletId, { type: "orders" });
-    return res.status(201).json({ ...order, items: [], payments: [], tableName: "" });
+    return res.status(201).json({ ...order, items: [], payments: [], tableName: table.name ?? "" });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
