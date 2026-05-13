@@ -55,7 +55,7 @@ export default function OrdersScreen() {
   const [statusFilter, setStatusFilter] = useState<ListOrdersStatus | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: orders, isLoading, refetch } = useListOrders(
+  const { data: ordersResponse, isLoading, refetch } = useListOrders(
     {
       outletId: staff?.role === "super_admin" ? undefined : outlet?.id,
       status: statusFilter,
@@ -63,6 +63,7 @@ export default function OrdersScreen() {
     },
     { query: { refetchInterval: 30000 } }
   );
+  const orders = ordersResponse?.orders;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
