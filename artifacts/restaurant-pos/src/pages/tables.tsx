@@ -338,12 +338,15 @@ export default function Tables() {
             </div>
             <div>
               <Label>Area (optional)</Label>
-              <Select value={tableForm.areaId} onValueChange={v => setTableForm(f => ({ ...f, areaId: v }))}>
+              <Select
+                value={tableForm.areaId || "none"}
+                onValueChange={v => setTableForm(f => ({ ...f, areaId: v === "none" ? "" : v }))}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="No area" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No area</SelectItem>
+                  <SelectItem value="none">No area</SelectItem>
                   {areas?.map(a => (
                     <SelectItem key={a.id} value={a.id.toString()}>
                       <span className="flex items-center gap-2">

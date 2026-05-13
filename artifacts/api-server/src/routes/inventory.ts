@@ -213,12 +213,12 @@ router.post("/menu/items/:menuItemId/recipe", requireRole("super_admin", "manage
   }
 });
 
-router.delete("/menu/items/:menuItemId/recipe/:inventoryItemId", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+router.delete("/menu/items/:menuItemId/recipe/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const menuItemId = parseInt(req.params.menuItemId as string);
-    const inventoryItemId = parseInt(req.params.inventoryItemId as string);
+    const id = parseInt(req.params.id as string);
     await db.delete(menuItemRecipesTable).where(
-      and(eq(menuItemRecipesTable.menuItemId, menuItemId), eq(menuItemRecipesTable.inventoryItemId, inventoryItemId))
+      and(eq(menuItemRecipesTable.id, id), eq(menuItemRecipesTable.menuItemId, menuItemId))
     );
     return res.status(204).send();
   } catch (err) {

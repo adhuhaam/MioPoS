@@ -138,7 +138,7 @@ export default function POS() {
   const handleAddItem = async (item: MenuItem) => {
     if (!activeOrderId) return;
     try {
-      const groups: ModifierGroup[] = await listItemModifierGroups({ menuItemId: item.id });
+      const groups: ModifierGroup[] = await listItemModifierGroups(item.id);
       if (groups.length > 0) {
         setPendingItem(item);
         setItemModGroups(groups);
