@@ -9,6 +9,7 @@ import {
   orderItemModifiersTable,
   tablesTable,
   menuItemsTable,
+  modifierGroupsTable,
   outletsTable,
   paymentsTable,
   type OrderStatus,
@@ -237,15 +238,21 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
     if (modifierOptionIds && modifierOptionIds.length > 0) {
       for (const optId of modifierOptionIds) {
         const opt = await db.query.modifierOptionsTable.findFirst({ where: (t, { eq: eqFn }) => eqFn(t.id, optId) });
-        if (opt) {
-          await db.insert(orderItemModifiersTable).values({
-            orderItemId: item.id,
-            modifierOptionId: optId,
-            name: opt.name,
-            priceAdjustment: opt.priceAdjustment,
-          });
-          modifierAdj += parseFloat(opt.priceAdjustment);
+        if (!opt) continue;
+
+        // Verify the modifier option belongs to the same outlet as the order
+        const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, opt.groupId) });
+        if (!group || group.outletId !== order.outletId) {
+          return res.status(400).json({ error: `Modifier option ${optId} does not belong to this outlet` });
         }
+
+        await db.insert(orderItemModifiersTable).values({
+          orderItemId: item.id,
+          modifierOptionId: optId,
+          name: opt.name,
+          priceAdjustment: opt.priceAdjustment,
+        });
+        modifierAdj += parseFloat(opt.priceAdjustment);
       }
       // Update item total to include modifier price adjustments
       if (modifierAdj !== 0) {

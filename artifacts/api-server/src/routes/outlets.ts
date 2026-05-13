@@ -1,7 +1,8 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, outletsTable } from "@workspace/db";
-import { requireRole } from "../lib/session";
+import { requireAuth, requireRole } from "../lib/session";
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.post("/outlets", requireRole("super_admin"), async (req, res) => {
   }
 });
 
-router.get("/outlets/:id", async (req, res) => {
+router.get("/outlets/:id", requireAuth, async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, id) });
@@ -44,9 +45,17 @@ router.get("/outlets/:id", async (req, res) => {
   }
 });
 
-router.patch("/outlets/:id", requireRole("super_admin"), async (req, res) => {
+router.patch("/outlets/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
+    const callerRole = req.session.role!;
+    const callerOutletId = req.session.outletId;
+
+    // Managers may only update their own outlet
+    if (callerRole === "manager" && callerOutletId !== id) {
+      return res.status(403).json({ error: "Forbidden: managers can only update their own outlet" });
+    }
+
     const { name, address, phone, taxRate, currency } = req.body;
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
