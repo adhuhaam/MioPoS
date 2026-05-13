@@ -23,9 +23,9 @@ export function MenuItemCard({ item, onPress, disabled }: MenuItemCardProps) {
         },
       ]}
       onPress={onPress}
-      disabled={disabled || !item.isAvailable}
+      disabled={disabled || !item.available}
     >
-      {!item.isAvailable && (
+      {!item.available && (
         <View style={[styles.unavailableOverlay, { backgroundColor: `${colors.muted}cc` }]}>
           <Text style={[styles.unavailableText, { color: colors.mutedForeground }]}>Unavailable</Text>
         </View>
