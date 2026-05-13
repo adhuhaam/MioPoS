@@ -37,6 +37,7 @@ export default function POS() {
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [activeCatId, setActiveCatId] = useState<number | null>(null);
   const [discountPercent, setDiscountPercent] = useState("");
+  const [orderNote, setOrderNote] = useState("");
   const [payDialog, setPayDialog] = useState(false);
   const [payMode, setPayMode] = useState<PayMode>("cash");
   const [payAmount, setPayAmount] = useState("");
@@ -114,6 +115,11 @@ export default function POS() {
   useEffect(() => {
     if (urlTableId && !activeOrderId) handleTableSelect(urlTableId.toString());
   }, [urlTableId]);
+
+  // Sync order note from loaded order
+  useEffect(() => {
+    setOrderNote(typedOrder?.notes ?? "");
+  }, [typedOrder?.id]);
 
   const handleTableSelect = async (tableIdStr: string) => {
     const tableId = parseInt(tableIdStr);
@@ -378,6 +384,31 @@ export default function POS() {
               updateOrder.mutate({ id: activeOrderId, data: { discountPercent: dp } }, { onSuccess: () => refetchOrder() });
             }} className="h-8" data-testid="button-apply-discount">Apply</Button>
           </div>
+
+          {activeOrderId && (
+            <div className="flex items-start gap-2">
+              <textarea
+                placeholder="Order note for kitchen…"
+                value={orderNote}
+                onChange={e => setOrderNote(e.target.value)}
+                rows={2}
+                className="flex-1 text-xs resize-none rounded-md border border-input bg-background px-3 py-1.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                data-testid="input-order-note"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-auto py-1.5 text-xs"
+                onClick={() => {
+                  if (!activeOrderId) return;
+                  updateOrder.mutate({ id: activeOrderId, data: { notes: orderNote } }, { onSuccess: () => refetchOrder() });
+                }}
+                data-testid="button-save-order-note"
+              >
+                Save
+              </Button>
+            </div>
+          )}
 
           {isTimedArea && activeOrderId && (
             <div className="flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg px-3 py-2">

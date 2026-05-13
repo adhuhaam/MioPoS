@@ -10,6 +10,7 @@ interface OrderLineItemProps {
   onIncrease: () => void;
   onDecrease: () => void;
   onRemove: () => void;
+  onNotePress?: () => void;
   disabled?: boolean;
 }
 
@@ -20,7 +21,7 @@ const KITCHEN_STATUS_COLOR: Record<string, string> = {
   served: "#9ca3af",
 };
 
-export function OrderLineItem({ item, onIncrease, onDecrease, onRemove, disabled }: OrderLineItemProps) {
+export function OrderLineItem({ item, onIncrease, onDecrease, onRemove, onNotePress, disabled }: OrderLineItemProps) {
   const colors = useColors();
   const lineTotal = (Number(item.unitPrice) * item.quantity).toFixed(2);
   const ksDot = KITCHEN_STATUS_COLOR[item.kitchenStatus] ?? colors.mutedForeground;
@@ -33,10 +34,23 @@ export function OrderLineItem({ item, onIncrease, onDecrease, onRemove, disabled
           <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
             {item.menuItemName}
           </Text>
+          {!disabled && onNotePress && (
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onNotePress(); }}
+              hitSlop={8}
+              style={styles.noteBtn}
+            >
+              <Feather
+                name="edit-2"
+                size={11}
+                color={item.notes ? colors.accent : colors.mutedForeground}
+              />
+            </Pressable>
+          )}
         </View>
         {item.notes ? (
-          <Text style={[styles.notes, { color: colors.mutedForeground }]} numberOfLines={1}>
-            {item.notes}
+          <Text style={[styles.notes, { color: colors.accent }]} numberOfLines={2}>
+            ✎ {item.notes}
           </Text>
         ) : null}
         {item.modifiers && item.modifiers.length > 0 && (
@@ -92,7 +106,8 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   ksDot: { width: 7, height: 7, borderRadius: 4, flexShrink: 0 },
   name: { fontSize: 14, fontWeight: "600", flex: 1 },
-  notes: { fontSize: 11 },
+  noteBtn: { padding: 2 },
+  notes: { fontSize: 11, fontStyle: "italic" },
   modifiers: { fontSize: 11, fontStyle: "italic" },
   unitPrice: { fontSize: 12 },
   controls: { flexDirection: "row", alignItems: "center", gap: 5 },

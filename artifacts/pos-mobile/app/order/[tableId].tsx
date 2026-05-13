@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -33,6 +33,7 @@ import {
   useRecordPayment,
   useListCategories,
   useListMenuItems,
+  listItemModifierGroups,
   getListTablesQueryKey,
   getListKitchenOrdersQueryKey,
   getGetOrderQueryKey,
@@ -40,6 +41,7 @@ import {
 import type {
   MenuItem,
   MenuCategory,
+  ModifierGroup,
   OrderDetail,
   OrderItem,
   PaymentInputMethod,
@@ -69,6 +71,23 @@ export default function OrderScreen() {
 
   // ── Menu state ────────────────────────────────────────────────────────────
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [menuSearch, setMenuSearch] = useState("");
+  const searchRef = useRef<any>(null);
+
+  // ── Modifier modal state ───────────────────────────────────────────────────
+  const [pendingItem, setPendingItem] = useState<MenuItem | null>(null);
+  const [modGroups, setModGroups] = useState<ModifierGroup[]>([]);
+  const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
+  const [showModModal, setShowModModal] = useState(false);
+
+  // ── Item note modal state ─────────────────────────────────────────────────
+  const [editingNoteItemId, setEditingNoteItemId] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [showNoteModal, setShowNoteModal] = useState(false);
+
+  // ── Order note state ──────────────────────────────────────────────────────
+  const [showOrderNote, setShowOrderNote] = useState(false);
+  const [orderNoteText, setOrderNoteText] = useState("");
 
   // ── Payment modal state ────────────────────────────────────────────────────
   const [showPayModal, setShowPayModal] = useState(false);
@@ -127,8 +146,22 @@ export default function OrderScreen() {
 
   const { data: menuItems } = useListMenuItems(
     { outletId, ...(activeCategoryId ? { categoryId: activeCategoryId } : {}) },
-    { query: { enabled: !!outletId } }
+    { query: { enabled: !!outletId && !menuSearch } }
   );
+
+  // All items (no category filter) — only fetched when search is active
+  const { data: allMenuItems } = useListMenuItems(
+    { outletId },
+    { query: { enabled: !!outletId && menuSearch.length > 0 } }
+  );
+
+  const displayedItems = useMemo(() => {
+    if (menuSearch.length > 0) {
+      const lower = menuSearch.toLowerCase();
+      return (allMenuItems ?? []).filter((i) => i.name.toLowerCase().includes(lower));
+    }
+    return menuItems ?? [];
+  }, [menuSearch, allMenuItems, menuItems]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const { mutateAsync: createOrder } = useCreateOrder();
@@ -165,8 +198,16 @@ export default function OrderScreen() {
       if (!item.available || isBilled || openLoading) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       try {
+        // Check for modifier groups first
+        const groups = await listItemModifierGroups(item.id);
+        if (groups.length > 0) {
+          setPendingItem(item);
+          setModGroups(groups);
+          setSelectedOptionIds([]);
+          setShowModModal(true);
+          return;
+        }
         const orderId = await ensureOrder();
-        // If item already in order, increment qty
         const existing = items.find((i) => i.menuItemId === item.id);
         if (existing) {
           await updateItem({
@@ -183,8 +224,76 @@ export default function OrderScreen() {
         Alert.alert("Error", e?.message ?? "Failed to add item");
       }
     },
-    [isBilled, ensureOrder, items, updateItem, addItem, refetchOrder, invalidateAll]
+    [isBilled, openLoading, ensureOrder, items, updateItem, addItem, refetchOrder, invalidateAll]
   );
+
+  // ── Modifier selection ────────────────────────────────────────────────────
+  const toggleOptionId = useCallback((group: ModifierGroup, optionId: number) => {
+    setSelectedOptionIds((prev) => {
+      if (group.maxSelections === 1) {
+        const groupIds = group.options.map((o) => o.id);
+        const filtered = prev.filter((id) => !groupIds.includes(id));
+        return prev.includes(optionId) ? filtered : [...filtered, optionId];
+      }
+      return prev.includes(optionId) ? prev.filter((id) => id !== optionId) : [...prev, optionId];
+    });
+  }, []);
+
+  const handleConfirmModifiers = useCallback(async () => {
+    if (!pendingItem) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const orderId = await ensureOrder();
+      await addItem({
+        id: orderId,
+        data: { menuItemId: pendingItem.id, quantity: 1, modifierOptionIds: selectedOptionIds },
+      });
+      setShowModModal(false);
+      setPendingItem(null);
+      setModGroups([]);
+      setSelectedOptionIds([]);
+      refetchOrder();
+      invalidateAll();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to add item");
+    }
+  }, [pendingItem, selectedOptionIds, ensureOrder, addItem, refetchOrder, invalidateAll]);
+
+  // ── Item notes ────────────────────────────────────────────────────────────
+  const handleOpenNoteModal = useCallback((itemId: number, currentNote: string) => {
+    setEditingNoteItemId(itemId);
+    setEditingNoteText(currentNote);
+    setShowNoteModal(true);
+  }, []);
+
+  const handleSaveItemNote = useCallback(async () => {
+    if (!existingOrderId || editingNoteItemId === null) return;
+    try {
+      await updateItem({
+        id: existingOrderId,
+        itemId: editingNoteItemId,
+        data: { notes: editingNoteText },
+      });
+      refetchOrder();
+      setShowNoteModal(false);
+      setEditingNoteItemId(null);
+      setEditingNoteText("");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to save note");
+    }
+  }, [existingOrderId, editingNoteItemId, editingNoteText, updateItem, refetchOrder]);
+
+  // ── Order notes ───────────────────────────────────────────────────────────
+  const handleSaveOrderNote = useCallback(async () => {
+    if (!existingOrderId) return;
+    try {
+      await updateOrder({ id: existingOrderId, data: { notes: orderNoteText } });
+      refetchOrder();
+      setShowOrderNote(false);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to save note");
+    }
+  }, [existingOrderId, orderNoteText, updateOrder, refetchOrder]);
 
   // ── Quantity controls ─────────────────────────────────────────────────────
   const handleIncrease = useCallback(
@@ -407,18 +516,57 @@ export default function OrderScreen() {
         <Text style={[styles.panelTitle, { color: colors.foreground }]}>
           {items.length > 0 ? `${items.length} item${items.length !== 1 ? "s" : ""}` : "Order"}
         </Text>
-        {!isBilled && existingOrderId && (
-          <Pressable
-            onPress={() => setShowDiscountInput((v) => !v)}
-            style={[styles.discountToggle, { borderColor: colors.border }]}
-          >
-            <Feather name="tag" size={13} color={colors.mutedForeground} />
-            <Text style={[styles.discountToggleText, { color: colors.mutedForeground }]}>
-              {discountAmount > 0 ? `−$${discountAmount.toFixed(2)}` : "Discount"}
-            </Text>
-          </Pressable>
-        )}
+        <View style={styles.panelHeaderActions}>
+          {!isBilled && existingOrderId && (
+            <Pressable
+              onPress={() => {
+                setOrderNoteText(order?.notes ?? "");
+                setShowDiscountInput(false);
+                setShowOrderNote((v) => !v);
+              }}
+              style={[styles.discountToggle, { borderColor: colors.border }]}
+            >
+              <Feather name="edit-3" size={13} color={order?.notes ? colors.accent : colors.mutedForeground} />
+              <Text style={[styles.discountToggleText, { color: order?.notes ? colors.accent : colors.mutedForeground }]}>
+                {order?.notes ? "Note" : "Note"}
+              </Text>
+            </Pressable>
+          )}
+          {!isBilled && existingOrderId && (
+            <Pressable
+              onPress={() => { setShowOrderNote(false); setShowDiscountInput((v) => !v); }}
+              style={[styles.discountToggle, { borderColor: colors.border }]}
+            >
+              <Feather name="tag" size={13} color={colors.mutedForeground} />
+              <Text style={[styles.discountToggleText, { color: colors.mutedForeground }]}>
+                {discountAmount > 0 ? `−$${discountAmount.toFixed(2)}` : "Discount"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </View>
+
+      {/* Order note input */}
+      {showOrderNote && (
+        <View style={[styles.discountRow, { borderBottomColor: colors.border, backgroundColor: colors.secondary }]}>
+          <TextInput
+            style={[styles.noteField, { color: colors.foreground, borderColor: colors.border }]}
+            value={orderNoteText}
+            onChangeText={setOrderNoteText}
+            placeholder="Order note for kitchen…"
+            placeholderTextColor={colors.mutedForeground}
+            multiline
+            returnKeyType="done"
+            blurOnSubmit
+          />
+          <Pressable
+            style={[styles.discountApply, { backgroundColor: colors.primary }]}
+            onPress={handleSaveOrderNote}
+          >
+            <Text style={[styles.discountApplyText, { color: colors.primaryForeground }]}>Save</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Discount input */}
       {showDiscountInput && (
@@ -466,6 +614,7 @@ export default function OrderScreen() {
               onIncrease={() => handleIncrease(item.id, item.quantity)}
               onDecrease={() => handleDecrease(item.id, item.quantity)}
               onRemove={() => handleRemove(item.id)}
+              onNotePress={!isBilled ? () => handleOpenNoteModal(item.id, item.notes ?? "") : undefined}
               disabled={isBilled}
             />
           ))}
@@ -563,8 +712,28 @@ export default function OrderScreen() {
   // ─────────────────────────────── Menu Panel ────────────────────────────────
   const MenuPanel = (
     <View style={[styles.panel, { borderTopColor: colors.border }]}>
-      {/* Category scroll */}
-      {catLoading ? (
+      {/* Search bar */}
+      <View style={[styles.searchBar, { borderBottomColor: colors.border, backgroundColor: colors.secondary }]}>
+        <Feather name="search" size={15} color={colors.mutedForeground} />
+        <TextInput
+          ref={searchRef}
+          style={[styles.searchInput, { color: colors.foreground }]}
+          value={menuSearch}
+          onChangeText={setMenuSearch}
+          placeholder="Search menu…"
+          placeholderTextColor={colors.mutedForeground}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+        />
+        {menuSearch.length > 0 && Platform.OS !== "ios" && (
+          <Pressable onPress={() => setMenuSearch("")} hitSlop={8}>
+            <Feather name="x" size={15} color={colors.mutedForeground} />
+          </Pressable>
+        )}
+      </View>
+
+      {/* Category scroll — hidden when searching */}
+      {!menuSearch && (catLoading ? (
         <View style={[styles.categoryBar, { justifyContent: "center" }]}>
           <ActivityIndicator size="small" color={colors.primary} />
         </View>
@@ -604,11 +773,11 @@ export default function OrderScreen() {
             </Pressable>
           ))}
         </ScrollView>
-      )}
+      ))}
 
       {/* Items grid */}
       <FlatList
-        data={menuItems ?? []}
+        data={displayedItems}
         keyExtractor={(i) => String(i.id)}
         renderItem={({ item }) => (
           <MenuItemCard
@@ -629,7 +798,7 @@ export default function OrderScreen() {
           <View style={styles.center}>
             <Feather name="package" size={28} color={colors.border} />
             <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-              No items in this category
+              {menuSearch ? `No items matching "${menuSearch}"` : "No items in this category"}
             </Text>
           </View>
         }
@@ -699,6 +868,122 @@ export default function OrderScreen() {
           <View style={styles.phoneMenu}>{MenuPanel}</View>
         </View>
       )}
+
+      {/* ── Modifier Selection Modal ──────────────────────────────────────── */}
+      <Modal
+        visible={showModModal}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setShowModModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowModModal(false)}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+              Customise: {pendingItem?.name}
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 340 }}>
+              {modGroups.map((group) => (
+                <View key={group.id} style={styles.modGroup}>
+                  <View style={styles.modGroupHeader}>
+                    <Text style={[styles.modGroupName, { color: colors.foreground }]}>{group.name}</Text>
+                    <Text style={[styles.modGroupSub, { color: colors.mutedForeground }]}>
+                      {group.required ? "Required" : "Optional"}
+                      {group.maxSelections > 1 ? ` · pick up to ${group.maxSelections}` : ""}
+                    </Text>
+                  </View>
+                  {group.options.map((opt) => {
+                    const selected = selectedOptionIds.includes(opt.id);
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        style={[
+                          styles.modOption,
+                          {
+                            borderColor: selected ? colors.primary : colors.border,
+                            backgroundColor: selected ? `${colors.primary}14` : colors.secondary,
+                          },
+                        ]}
+                        onPress={() => toggleOptionId(group, opt.id)}
+                      >
+                        <View style={[
+                          styles.modCheck,
+                          {
+                            borderColor: selected ? colors.primary : colors.border,
+                            backgroundColor: selected ? colors.primary : "transparent",
+                          },
+                        ]}>
+                          {selected && <Feather name="check" size={10} color={colors.primaryForeground} />}
+                        </View>
+                        <Text style={[styles.modOptionName, { color: colors.foreground }]}>{opt.name}</Text>
+                        {Number(opt.priceAdjustment) !== 0 && (
+                          <Text style={[styles.modOptionPrice, { color: colors.mutedForeground }]}>
+                            {Number(opt.priceAdjustment) > 0 ? "+" : ""}${Number(opt.priceAdjustment).toFixed(2)}
+                          </Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
+
+            <Pressable
+              style={[styles.confirmBtn, { backgroundColor: colors.primary }]}
+              onPress={handleConfirmModifiers}
+            >
+              <Feather name="plus-circle" size={18} color={colors.primaryForeground} />
+              <Text style={[styles.confirmText, { color: colors.primaryForeground }]}>Add to Order</Text>
+            </Pressable>
+            <View style={{ height: bottomPad }} />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Item Note Modal ───────────────────────────────────────────────── */}
+      <Modal
+        visible={showNoteModal}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setShowNoteModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowNoteModal(false)}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Special Instructions</Text>
+            <Text style={[styles.infoText, { color: colors.mutedForeground, textAlign: "center" }]}>
+              Note for the kitchen (e.g. "no onions", "extra spicy")
+            </Text>
+            <TextInput
+              style={[
+                styles.noteModalField,
+                { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary },
+              ]}
+              value={editingNoteText}
+              onChangeText={setEditingNoteText}
+              placeholder="Add a note…"
+              placeholderTextColor={colors.mutedForeground}
+              multiline
+              autoFocus
+              numberOfLines={3}
+            />
+            <Pressable
+              style={[styles.confirmBtn, { backgroundColor: colors.primary }]}
+              onPress={handleSaveItemNote}
+            >
+              <Feather name="check-circle" size={18} color={colors.primaryForeground} />
+              <Text style={[styles.confirmText, { color: colors.primaryForeground }]}>Save Note</Text>
+            </Pressable>
+            <Pressable style={styles.cancelLink} onPress={() => setShowNoteModal(false)}>
+              <Text style={[styles.cancelText, { color: colors.mutedForeground }]}>Cancel</Text>
+            </Pressable>
+            <View style={{ height: bottomPad }} />
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Payment Modal */}
       <Modal
@@ -1009,12 +1294,71 @@ const styles = StyleSheet.create({
   actionBtnText: { fontSize: 15, fontWeight: "700" },
   disabled: { opacity: 0.4 },
 
+  // Panel header
+  panelHeaderActions: { flexDirection: "row", gap: 6 },
+  noteField: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 13,
+    minHeight: 36,
+  },
+
+  // Menu search
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+  },
+  searchInput: { flex: 1, fontSize: 14, paddingVertical: 2 },
+
   // Menu
   categoryBar: { paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
   catChip: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
   catText: { fontSize: 13, fontWeight: "600" },
   menuRow: { gap: 8, marginHorizontal: 12 },
   menuContent: { paddingTop: 4, gap: 8 },
+
+  // Modifier modal
+  modGroup: { marginBottom: 16 },
+  modGroupHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  modGroupName: { fontSize: 14, fontWeight: "700" },
+  modGroupSub: { fontSize: 11 },
+  modOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 6,
+  },
+  modCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modOptionName: { flex: 1, fontSize: 14 },
+  modOptionPrice: { fontSize: 13 },
+
+  // Item note modal
+  noteModalField: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
 
   // Payment modal
   modalOverlay: {
