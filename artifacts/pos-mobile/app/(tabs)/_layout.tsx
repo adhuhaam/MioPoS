@@ -6,6 +6,7 @@ import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { ActivityIndicator, Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
@@ -35,12 +36,22 @@ function NativeTabLayout({ role }: { role: string }) {
         <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
         <Label>Kitchen</Label>
       </NativeTabs.Trigger>
+      {!isKitchen && (
+        <NativeTabs.Trigger name="orders">
+          <Icon sf={{ default: "list.bullet.rectangle", selected: "list.bullet.rectangle.fill" }} />
+          <Label>Orders</Label>
+        </NativeTabs.Trigger>
+      )}
       {isManager && (
         <NativeTabs.Trigger name="reports">
           <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
           <Label>Reports</Label>
         </NativeTabs.Trigger>
       )}
+      <NativeTabs.Trigger name="more">
+        <Icon sf={{ default: "ellipsis.circle", selected: "ellipsis.circle.fill" }} />
+        <Label>More</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -106,6 +117,19 @@ function ClassicTabLayout({ role }: { role: string }) {
         }}
       />
       <Tabs.Screen
+        name="orders"
+        options={{
+          title: "Orders",
+          href: isKitchen ? null : undefined,
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="list.bullet.rectangle" tintColor={color} size={24} />
+            ) : (
+              <Feather name="list" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
         name="reports"
         options={{
           title: "Reports",
@@ -115,6 +139,18 @@ function ClassicTabLayout({ role }: { role: string }) {
               <SymbolView name="chart.bar" tintColor={color} size={24} />
             ) : (
               <Feather name="bar-chart-2" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: "More",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="ellipsis.circle" tintColor={color} size={24} />
+            ) : (
+              <Feather name="more-horizontal" size={22} color={color} />
             ),
         }}
       />

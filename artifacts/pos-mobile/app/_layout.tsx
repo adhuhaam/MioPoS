@@ -24,7 +24,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { isAuthenticated, isLoading, staff } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) return null;
 
@@ -39,7 +39,13 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="order/[tableId]" options={{ headerShown: false, presentation: "card" }} />
+      <Stack.Screen name="order/[tableId]" options={{ presentation: "card" }} />
+      <Stack.Screen name="outlets" options={{ presentation: "card" }} />
+      <Stack.Screen name="staff" options={{ presentation: "card" }} />
+      <Stack.Screen name="menu" options={{ presentation: "card" }} />
+      <Stack.Screen name="customers" options={{ presentation: "card" }} />
+      <Stack.Screen name="settings" options={{ presentation: "card" }} />
+      <Stack.Screen name="areas" options={{ presentation: "card" }} />
     </Stack>
   );
 }
