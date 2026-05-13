@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import * as Print from "expo-print";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -77,18 +78,107 @@ function Row({ label, value, bold, large, color }: { label: string; value: strin
   );
 }
 
+function buildReceiptHtml(order: any, outletName: string): string {
+  const items: any[] = order?.items ?? [];
+  const payments: any[] = order?.payments ?? [];
+  const subtotal = parseFloat(order?.subtotal ?? "0");
+  const discount = parseFloat(order?.discountAmount ?? "0");
+  const tax = parseFloat(order?.taxAmount ?? "0");
+  const timeFee = parseFloat(order?.timeFee ?? "0");
+  const total = parseFloat(order?.total ?? "0");
+  const tableName = order?.tableName || `Table ${order?.tableId}`;
+  const date = order?.createdAt ? new Date(order.createdAt).toLocaleString() : "";
+
+  const itemRows = items.map((item: any) => {
+    const mods = (item.modifiers ?? [])
+      .map((m: any) => `<div class="mod">+ ${m.name}</div>`)
+      .join("");
+    return `
+      <tr>
+        <td>${item.quantity}×</td>
+        <td>${item.menuItemName}${mods ? `<div class="mods">${mods}</div>` : ""}${item.notes ? `<div class="note">${item.notes}</div>` : ""}</td>
+        <td class="right">${fmt(item.total)}</td>
+      </tr>`;
+  }).join("");
+
+  const payRows = payments.map((p: any) => {
+    const method = p.method === "bank_transfer" ? "Bank Transfer" : p.method.charAt(0).toUpperCase() + p.method.slice(1);
+    return `<div class="pay-row"><span>${method}</span><span>${fmt(p.amount)}</span></div>`;
+  }).join("");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Courier New', monospace; font-size: 13px; color: #111; padding: 16px; max-width: 380px; margin: 0 auto; }
+  .center { text-align: center; }
+  .outlet { font-size: 18px; font-weight: bold; margin-bottom: 2px; }
+  .divider { border-top: 1px dashed #999; margin: 10px 0; }
+  .info { font-size: 12px; color: #444; margin-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  td { padding: 5px 2px; vertical-align: top; }
+  td:first-child { width: 28px; color: #555; }
+  td:last-child { width: 70px; text-align: right; font-weight: 600; }
+  .right { text-align: right; }
+  .mods, .mod { color: #666; font-size: 11px; }
+  .note { color: #888; font-style: italic; font-size: 11px; }
+  .summary { width: 100%; }
+  .summary tr td { padding: 3px 2px; }
+  .summary .label { color: #555; }
+  .summary .total-row td { font-weight: bold; font-size: 14px; border-top: 1px solid #ccc; padding-top: 6px; }
+  .pay-row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .footer { text-align: center; font-size: 11px; color: #888; margin-top: 14px; }
+  .status { display: inline-block; padding: 2px 10px; border: 1px solid #ccc; border-radius: 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+  <div class="center">
+    <div class="outlet">${outletName}</div>
+    <div class="info">Order #${order?.id} · ${tableName}</div>
+    <div class="info">${date}</div>
+    <div style="margin-top:6px"><span class="status">${order?.status ?? ""}</span></div>
+  </div>
+  <div class="divider"></div>
+
+  <table>
+    <tbody>${itemRows}</tbody>
+  </table>
+  <div class="divider"></div>
+
+  <table class="summary">
+    <tbody>
+      <tr><td class="label">Subtotal</td><td class="right">${fmt(subtotal)}</td></tr>
+      ${discount > 0 ? `<tr><td class="label">Discount</td><td class="right">-${fmt(discount)}</td></tr>` : ""}
+      ${tax > 0 ? `<tr><td class="label">Tax</td><td class="right">${fmt(tax)}</td></tr>` : ""}
+      ${timeFee > 0 ? `<tr><td class="label">Time Fee</td><td class="right">${fmt(timeFee)}</td></tr>` : ""}
+      <tr class="total-row"><td>TOTAL</td><td class="right">${fmt(total)}</td></tr>
+    </tbody>
+  </table>
+
+  ${payRows ? `<div class="divider"></div><div>${payRows}</div>` : ""}
+
+  <div class="footer">Thank you for dining with us!</div>
+</body>
+</html>`;
+}
+
 function OrderDetailSheet({
   orderId,
   visible,
   onClose,
+  outletName,
 }: {
   orderId: number | null;
   visible: boolean;
   onClose: () => void;
+  outletName: string;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(600)).current;
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -101,6 +191,18 @@ function OrderDetailSheet({
   const { data: order, isLoading } = useGetOrder(orderId!, {
     query: { enabled: !!orderId },
   });
+
+  const handlePrint = useCallback(async () => {
+    if (!order) return;
+    setPrinting(true);
+    try {
+      await Print.printAsync({ html: buildReceiptHtml(order, outletName) });
+    } catch {
+      // user cancelled or printer unavailable — silently ignore
+    } finally {
+      setPrinting(false);
+    }
+  }, [order, outletName]);
 
   const items: any[] = (order as any)?.items ?? [];
   const payments: any[] = (order as any)?.payments ?? [];
@@ -149,6 +251,17 @@ function OrderDetailSheet({
           </View>
           <View style={s.sheetHeaderRight}>
             {order && <StatusBadge status={order.status} colors={colors} />}
+            <Pressable
+              onPress={handlePrint}
+              disabled={printing || isLoading || !order}
+              style={[s.printBtn, { backgroundColor: colors.accent, opacity: printing || isLoading || !order ? 0.5 : 1 }]}
+            >
+              {printing ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Feather name="printer" size={15} color="#fff" />
+              )}
+            </Pressable>
             <Pressable onPress={onClose} style={[s.closeBtn, { backgroundColor: colors.secondary }]}>
               <Feather name="x" size={16} color={colors.foreground} />
             </Pressable>
@@ -374,6 +487,7 @@ export default function OrdersScreen() {
         orderId={selectedOrderId}
         visible={sheetVisible}
         onClose={closeDetail}
+        outletName={outlet?.name ?? "Restaurant"}
       />
     </View>
   );
@@ -432,6 +546,7 @@ const s = StyleSheet.create({
   sheetHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   sheetTitle: { fontSize: 20, fontWeight: "800" },
   sheetSub: { fontSize: 13 },
+  printBtn: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   sheetCenter: { padding: 40, alignItems: "center" },
   sheetBody: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 8 },
