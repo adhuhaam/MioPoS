@@ -1,5 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -77,6 +79,11 @@ export default function OrderScreen() {
   // ── Discount state ─────────────────────────────────────────────────────────
   const [showDiscountInput, setShowDiscountInput] = useState(false);
   const [discountPercent, setDiscountPercent] = useState("");
+
+  // ── Bank transfer slip state ───────────────────────────────────────────────
+  const [slipUri, setSlipUri] = useState<string | null>(null);
+  const [slipObjectPath, setSlipObjectPath] = useState<string | null>(null);
+  const [isUploadingSlip, setIsUploadingSlip] = useState(false);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: openOrdersData, isLoading: openLoading } = useListOrders(
@@ -248,15 +255,117 @@ export default function OrderScreen() {
   }, [existingOrderId, items, updateOrder, refetchOrder, invalidateAll, total]);
 
   // ── Open payment ──────────────────────────────────────────────────────────
+  const closePayModal = useCallback(() => {
+    setShowPayModal(false);
+    setSlipUri(null);
+    setSlipObjectPath(null);
+    setCashReceived("");
+  }, []);
+
   const handleOpenPayment = useCallback(() => {
     setCashReceived(total.toFixed(2));
     setPayMethod("cash");
+    setSlipUri(null);
+    setSlipObjectPath(null);
     setShowPayModal(true);
   }, [total]);
+
+  // ── Pick & upload bank transfer slip ─────────────────────────────────────
+  const doUploadSlip = useCallback(async (uri: string, contentType: string) => {
+    setIsUploadingSlip(true);
+    try {
+      const base = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
+      const fileName = uri.split("/").pop() ?? "slip.jpg";
+
+      const blob = await (await fetch(uri)).blob();
+      const size = blob.size;
+
+      const urlRes = await fetch(`${base}/api/storage/uploads/request-url`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: fileName, size, contentType }),
+      });
+      if (!urlRes.ok) throw new Error("Failed to get upload URL");
+      const { uploadURL, objectPath } = await urlRes.json();
+
+      const uploadRes = await fetch(uploadURL, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: blob,
+      });
+      if (!uploadRes.ok) throw new Error("Failed to upload slip image");
+
+      setSlipUri(uri);
+      setSlipObjectPath(objectPath);
+    } catch (e: any) {
+      Alert.alert("Upload Failed", e?.message ?? "Could not upload slip image");
+    } finally {
+      setIsUploadingSlip(false);
+    }
+  }, []);
+
+  const pickAndUploadSlip = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "Camera access is needed to photograph the bank transfer slip. You can also choose from your photo library.",
+        [
+          {
+            text: "Choose from library",
+            onPress: async () => {
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ["images"],
+                quality: 0.8,
+              });
+              if (!result.canceled && result.assets[0]) {
+                await doUploadSlip(result.assets[0].uri, result.assets[0].mimeType ?? "image/jpeg");
+              }
+            },
+          },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
+    }
+
+    Alert.alert("Attach Slip", "Choose a source", [
+      {
+        text: "Take Photo",
+        onPress: async () => {
+          const result = await ImagePicker.launchCameraAsync({
+            mediaTypes: ["images"],
+            quality: 0.8,
+          });
+          if (!result.canceled && result.assets[0]) {
+            await doUploadSlip(result.assets[0].uri, result.assets[0].mimeType ?? "image/jpeg");
+          }
+        },
+      },
+      {
+        text: "Choose from Library",
+        onPress: async () => {
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images"],
+            quality: 0.8,
+          });
+          if (!result.canceled && result.assets[0]) {
+            await doUploadSlip(result.assets[0].uri, result.assets[0].mimeType ?? "image/jpeg");
+          }
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [doUploadSlip]);
 
   // ── Record payment ────────────────────────────────────────────────────────
   const handlePay = useCallback(async () => {
     if (!existingOrderId) return;
+    if (payMethod === "bank_transfer" && !slipObjectPath) {
+      Alert.alert("Slip Required", "Please attach a photo of the bank transfer slip before confirming.");
+      return;
+    }
     setIsProcessing(true);
     try {
       const amount =
@@ -266,18 +375,19 @@ export default function OrderScreen() {
         data: {
           method: payMethod as PaymentInputMethod,
           amount: Math.min(amount, total),
+          ...(slipObjectPath ? { slipImagePath: slipObjectPath } : {}),
         },
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       invalidateAll();
-      setShowPayModal(false);
+      closePayModal();
       router.back();
     } catch (e: any) {
       Alert.alert("Payment Failed", e?.message ?? "Something went wrong");
     } finally {
       setIsProcessing(false);
     }
-  }, [existingOrderId, payMethod, cashReceived, total, recordPayment, invalidateAll, router]);
+  }, [existingOrderId, payMethod, cashReceived, total, slipObjectPath, recordPayment, invalidateAll, closePayModal, router]);
 
   // ── Loading state ─────────────────────────────────────────────────────────
   const isInitialLoading = (openLoading || billedLoading) && !existingOrderId;
@@ -596,11 +706,11 @@ export default function OrderScreen() {
         animationType="slide"
         transparent
         presentationStyle="overFullScreen"
-        onRequestClose={() => !isProcessing && setShowPayModal(false)}
+        onRequestClose={() => !isProcessing && closePayModal()}
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => !isProcessing && setShowPayModal(false)}
+          onPress={() => !isProcessing && closePayModal()}
         >
           <Pressable
             style={[
@@ -690,7 +800,56 @@ export default function OrderScreen() {
               </View>
             )}
 
-            {(payMethod === "bank_transfer" || payMethod === "credit") && (
+            {payMethod === "bank_transfer" && (
+              <View style={styles.slipSection}>
+                {slipUri ? (
+                  <View style={styles.slipPreviewRow}>
+                    <Image
+                      source={{ uri: slipUri }}
+                      style={styles.slipThumb}
+                      contentFit="cover"
+                    />
+                    <View style={styles.slipPreviewInfo}>
+                      <Feather name="check-circle" size={16} color={colors.success} />
+                      <Text style={[styles.slipAttachedText, { color: colors.success }]}>
+                        Slip attached
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={pickAndUploadSlip}
+                      style={[styles.slipChangeBtn, { borderColor: colors.border }]}
+                    >
+                      <Text style={[styles.slipChangeBtnText, { color: colors.mutedForeground }]}>
+                        Change
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable
+                    style={[
+                      styles.slipAttachBtn,
+                      { borderColor: isUploadingSlip ? colors.accent : colors.border, backgroundColor: colors.secondary },
+                    ]}
+                    onPress={pickAndUploadSlip}
+                    disabled={isUploadingSlip}
+                  >
+                    {isUploadingSlip ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Feather name="camera" size={18} color={colors.accent} />
+                    )}
+                    <Text style={[styles.slipAttachBtnText, { color: isUploadingSlip ? colors.mutedForeground : colors.foreground }]}>
+                      {isUploadingSlip ? "Uploading slip…" : "Attach Transfer Slip"}
+                    </Text>
+                  </Pressable>
+                )}
+                <Text style={[styles.slipHint, { color: colors.mutedForeground }]}>
+                  A photo of the transfer slip is required to confirm payment.
+                </Text>
+              </View>
+            )}
+
+            {payMethod === "credit" && (
               <View
                 style={[
                   styles.infoBox,
@@ -699,9 +858,7 @@ export default function OrderScreen() {
               >
                 <Feather name="info" size={14} color={colors.accent} />
                 <Text style={[styles.infoText, { color: colors.accent }]}>
-                  {payMethod === "bank_transfer"
-                    ? "Record the bank transfer for this order."
-                    : "Customer credit will be deducted from their balance."}
+                  Customer credit will be deducted from their balance.
                 </Text>
               </View>
             )}
@@ -728,7 +885,7 @@ export default function OrderScreen() {
 
             <Pressable
               style={styles.cancelLink}
-              onPress={() => setShowPayModal(false)}
+              onPress={closePayModal}
               disabled={isProcessing}
             >
               <Text style={[styles.cancelText, { color: colors.mutedForeground }]}>Cancel</Text>
@@ -909,4 +1066,41 @@ const styles = StyleSheet.create({
   confirmText: { fontSize: 17, fontWeight: "700" },
   cancelLink: { alignItems: "center", paddingVertical: 4 },
   cancelText: { fontSize: 14 },
+  slipSection: { gap: 8 },
+  slipAttachBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderRadius: 12,
+    paddingVertical: 16,
+  },
+  slipAttachBtnText: { fontSize: 15, fontWeight: "600" },
+  slipPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  slipThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+  },
+  slipPreviewInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  slipAttachedText: { fontSize: 14, fontWeight: "600" },
+  slipChangeBtn: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  slipChangeBtnText: { fontSize: 13, fontWeight: "500" },
+  slipHint: { fontSize: 12, lineHeight: 16 },
 });
