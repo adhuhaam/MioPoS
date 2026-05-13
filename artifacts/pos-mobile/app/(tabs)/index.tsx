@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -87,19 +87,19 @@ function TableCard({ table, now, onPress }: { table: Table; now: number; onPress
         styles.card,
         {
           backgroundColor: colors.card,
-          borderColor: cfg.dot,
-          opacity: pressed ? 0.82 : 1,
+          borderColor: colors.border,
+          opacity: pressed ? 0.78 : 1,
           transform: [{ scale: pressed ? 0.97 : 1 }],
         },
       ]}
       onPress={onPress}
     >
-      {/* Top colour strip */}
-      <View style={[styles.cardStrip, { backgroundColor: cfg.dot }]} />
-
       <View style={styles.cardBody}>
-        {/* Name + timer badge on the same row */}
+        {/* Table icon + name row */}
         <View style={styles.nameRow}>
+          <View style={[styles.tableIconWrap, { backgroundColor: `${cfg.dot}18` }]}>
+            <MaterialCommunityIcons name="table-chair" size={20} color={cfg.dot} />
+          </View>
           <Text style={[styles.cardName, { color: colors.foreground, flexShrink: 1 }]} numberOfLines={1}>
             {table.name}
           </Text>
@@ -124,7 +124,7 @@ function TableCard({ table, now, onPress }: { table: Table; now: number; onPress
           </View>
         )}
 
-        <View style={[styles.cardBadge, { backgroundColor: `${cfg.dot}22` }]}>
+        <View style={[styles.cardBadge, { backgroundColor: `${cfg.dot}18` }]}>
           <View style={[styles.badgeDot, { backgroundColor: cfg.dot }]} />
           <Text style={[styles.badgeText, { color: cfg.dot }]}>{cfg.label}</Text>
         </View>
@@ -420,7 +420,7 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     borderRadius: 14,
-    borderWidth: 2,
+    borderWidth: 1,
     overflow: "hidden",
     minWidth: 110,
     maxWidth: 200,
@@ -430,10 +430,17 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  cardStrip: { height: 5 },
   cardBody: { padding: 12, gap: 6 },
-  nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  cardName: { fontSize: 16, fontWeight: "800" },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "nowrap" },
+  tableIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  cardName: { fontSize: 15, fontWeight: "800", flexShrink: 1 },
   timerBadge: {
     flexDirection: "row",
     alignItems: "center",
