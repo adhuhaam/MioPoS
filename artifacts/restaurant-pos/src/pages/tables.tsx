@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useListTables, getListTablesQueryKey, useCreateTable, useUpdateTable, useDeleteTable } from "@workspace/api-client-react";
+import type { Table } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -39,23 +40,22 @@ export default function Tables() {
   const remove = useDeleteTable();
 
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+  const [editing, setEditing] = useState<Table | null>(null);
   const [form, setForm] = useState<TableForm>({ name: "", capacity: "4" });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
 
   const openCreate = () => { setEditing(null); setForm({ name: "", capacity: "4" }); setOpen(true); };
-  const openEdit = (t: any) => { setEditing(t); setForm({ name: t.name, capacity: t.capacity.toString() }); setOpen(true); };
+  const openEdit = (t: Table) => { setEditing(t); setForm({ name: t.name, capacity: t.capacity.toString() }); setOpen(true); };
 
   const save = () => {
-    const data = { outletId, name: form.name, capacity: parseInt(form.capacity), status: "available" as const };
     if (editing) {
       update.mutate({ id: editing.id, data: { name: form.name, capacity: parseInt(form.capacity) } }, {
         onSuccess: () => { toast({ title: "Table updated" }); setOpen(false); invalidate(); },
         onError: () => toast({ variant: "destructive", title: "Failed" }),
       });
     } else {
-      create.mutate({ data }, {
+      create.mutate({ data: { outletId, name: form.name, capacity: parseInt(form.capacity), status: "available" } }, {
         onSuccess: () => { toast({ title: "Table created" }); setOpen(false); invalidate(); },
         onError: () => toast({ variant: "destructive", title: "Failed" }),
       });
@@ -67,7 +67,7 @@ export default function Tables() {
     remove.mutate({ id }, { onSuccess: invalidate, onError: () => toast({ variant: "destructive", title: "Failed" }) });
   };
 
-  const handleTableClick = (t: any) => {
+  const handleTableClick = (t: Table) => {
     if (t.status === "available") {
       setLocation(`/pos?tableId=${t.id}`);
     }
@@ -94,7 +94,7 @@ export default function Tables() {
 
       {isLoading ? <div className="text-muted-foreground">Loading...</div> : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-          {tables?.map(t => (
+          {tables?.map((t: Table) => (
             <div key={t.id} data-testid={`card-table-${t.id}`}
               className={`border-2 rounded-xl p-4 transition-all ${STATUS_STYLE[t.status]} ${t.status === "available" ? "cursor-pointer" : "cursor-default"}`}
               onClick={() => handleTableClick(t)}>

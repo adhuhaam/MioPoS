@@ -1,11 +1,13 @@
 import { useState } from "react";
+import type { ElementType } from "react";
 import { useGetOutletReport, getGetOutletReportQueryKey, useGetConsolidatedReport, getGetConsolidatedReportQueryKey, useListOutlets, getListOutletsQueryKey } from "@workspace/api-client-react";
+import type { OutletReport, ConsolidatedReport, GetOutletReportPeriod, GetConsolidatedReportPeriod } from "@workspace/api-client-react";
 import { useAuth } from "../lib/auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { TrendingUp, DollarSign, ShoppingBag, BarChart2 } from "lucide-react";
+import { TrendingUp, DollarSign, ShoppingBag } from "lucide-react";
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function StatCard({ icon: Icon, label, value }: { icon: ElementType; label: string; value: string }) {
   return (
     <div className="border border-border rounded-xl p-5 bg-card space-y-3">
       <div className="flex items-center justify-between">
@@ -17,11 +19,17 @@ function StatCard({ icon: Icon, label, value }: { icon: any; label: string; valu
   );
 }
 
+const PERIOD_OPTIONS: { value: GetOutletReportPeriod; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "week", label: "Last 7 days" },
+  { value: "month", label: "Last 30 days" },
+];
+
 export default function Reports() {
   const { auth } = useAuth();
   const isSuperAdmin = auth?.staff.role === "super_admin";
   const [activeTab, setActiveTab] = useState<"outlet" | "consolidated">(isSuperAdmin ? "consolidated" : "outlet");
-  const [period, setPeriod] = useState<"today" | "week" | "month">("today");
+  const [period, setPeriod] = useState<GetOutletReportPeriod>("today");
   const [outletId, setOutletId] = useState<number | null>(isSuperAdmin ? null : auth!.outlet.id);
 
   const { data: outlets } = useListOutlets({ query: { queryKey: getListOutletsQueryKey() } });
@@ -37,16 +45,17 @@ export default function Reports() {
   );
 
   const { data: consolidated, isLoading: loadingConsolidated } = useGetConsolidatedReport(
-    { period },
+    { period: period as GetConsolidatedReportPeriod },
     {
       query: {
         enabled: activeTab === "consolidated",
-        queryKey: getGetConsolidatedReportQueryKey({ period })
+        queryKey: getGetConsolidatedReportQueryKey({ period: period as GetConsolidatedReportPeriod })
       }
     }
   );
 
-  const periods = [{ value: "today", label: "Today" }, { value: "week", label: "Last 7 days" }, { value: "month", label: "Last 30 days" }];
+  const report = outletReport as OutletReport | undefined;
+  const cons = consolidated as ConsolidatedReport | undefined;
 
   return (
     <div className="p-8 space-y-6">
@@ -55,10 +64,10 @@ export default function Reports() {
           <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
           <p className="text-muted-foreground mt-1">Revenue and performance analytics</p>
         </div>
-        <Select value={period} onValueChange={v => setPeriod(v as any)}>
+        <Select value={period} onValueChange={(v) => setPeriod(v as GetOutletReportPeriod)}>
           <SelectTrigger className="w-40" data-testid="select-period"><SelectValue /></SelectTrigger>
           <SelectContent>
-            {periods.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+            {PERIOD_OPTIONS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -86,41 +95,41 @@ export default function Reports() {
             </Select>
           )}
 
-          {loadingOutlet ? <div className="text-muted-foreground">Loading...</div> : outletReport ? (
+          {loadingOutlet ? <div className="text-muted-foreground">Loading...</div> : report ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard icon={DollarSign} label="Revenue" value={`$${(outletReport as any).revenue?.toFixed(2) ?? "0.00"}`} />
-                <StatCard icon={ShoppingBag} label="Orders" value={(outletReport as any).orderCount?.toString() ?? "0"} />
-                <StatCard icon={TrendingUp} label="Avg Order Value" value={`$${(outletReport as any).avgOrderValue?.toFixed(2) ?? "0.00"}`} />
+                <StatCard icon={DollarSign} label="Revenue" value={`$${report.totalRevenue.toFixed(2)}`} />
+                <StatCard icon={ShoppingBag} label="Orders" value={report.totalOrders.toString()} />
+                <StatCard icon={TrendingUp} label="Avg Order Value" value={`$${report.averageOrderValue.toFixed(2)}`} />
               </div>
 
-              {(outletReport as any).dailyRevenue?.length > 0 && (
+              {report.dailyRevenue.length > 0 && (
                 <div className="border border-border rounded-xl p-5 bg-card">
                   <h3 className="font-semibold mb-4">Daily Revenue</h3>
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={(outletReport as any).dailyRevenue}>
+                    <BarChart data={report.dailyRevenue}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v: any) => [`$${v.toFixed(2)}`, "Revenue"]} />
+                      <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} />
                       <Bar dataKey="revenue" className="fill-primary" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
 
-              {(outletReport as any).topItems?.length > 0 && (
+              {report.topItems.length > 0 && (
                 <div className="border border-border rounded-xl p-5 bg-card">
                   <h3 className="font-semibold mb-4">Top Items</h3>
                   <div className="space-y-2">
-                    {(outletReport as any).topItems.map((item: any, i: number) => (
+                    {report.topItems.map((item, i) => (
                       <div key={i} data-testid={`row-top-item-${i}`} className="flex items-center justify-between text-sm">
                         <div className="flex items-center gap-3">
                           <span className="w-5 text-right text-muted-foreground font-mono">{i + 1}</span>
-                          <span>{item.name}</span>
+                          <span>{item.menuItemName}</span>
                         </div>
                         <div className="flex gap-6 text-muted-foreground">
-                          <span>{item.count} sold</span>
+                          <span>{item.quantitySold} sold</span>
                           <span className="font-semibold text-foreground">${item.revenue.toFixed(2)}</span>
                         </div>
                       </div>
@@ -137,23 +146,23 @@ export default function Reports() {
 
       {activeTab === "consolidated" && (
         <div className="space-y-6">
-          {loadingConsolidated ? <div className="text-muted-foreground">Loading...</div> : consolidated ? (
+          {loadingConsolidated ? <div className="text-muted-foreground">Loading...</div> : cons ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard icon={DollarSign} label="Total Revenue" value={`$${(consolidated as any).totalRevenue?.toFixed(2) ?? "0.00"}`} />
-                <StatCard icon={ShoppingBag} label="Total Orders" value={(consolidated as any).totalOrders?.toString() ?? "0"} />
-                <StatCard icon={TrendingUp} label="Avg Order Value" value={`$${(consolidated as any).avgOrderValue?.toFixed(2) ?? "0.00"}`} />
+                <StatCard icon={DollarSign} label="Total Revenue" value={`$${cons.totalRevenue.toFixed(2)}`} />
+                <StatCard icon={ShoppingBag} label="Total Orders" value={cons.totalOrders.toString()} />
+                <StatCard icon={TrendingUp} label="Avg Order Value" value={`$${(cons.averageOrderValue ?? 0).toFixed(2)}`} />
               </div>
 
-              {(consolidated as any).dailyRevenue?.length > 0 && (
+              {cons.dailyRevenue && cons.dailyRevenue.length > 0 && (
                 <div className="border border-border rounded-xl p-5 bg-card">
                   <h3 className="font-semibold mb-4">Daily Revenue (All Outlets)</h3>
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={(consolidated as any).dailyRevenue}>
+                    <BarChart data={cons.dailyRevenue}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v: any) => [`$${v.toFixed(2)}`, "Revenue"]} />
+                      <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} />
                       <Bar dataKey="revenue" className="fill-primary" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -173,10 +182,10 @@ export default function Reports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(consolidated as any).outletBreakdown?.map((row: any) => (
+                    {cons.outletBreakdown.map((row) => (
                       <tr key={row.outletId} data-testid={`row-outlet-breakdown-${row.outletId}`} className="border-t border-border">
                         <td className="px-5 py-3 font-medium">{row.outletName}</td>
-                        <td className="px-5 py-3 text-right text-muted-foreground">{row.orderCount}</td>
+                        <td className="px-5 py-3 text-right text-muted-foreground">{row.orders}</td>
                         <td className="px-5 py-3 text-right font-semibold">${row.revenue.toFixed(2)}</td>
                       </tr>
                     ))}

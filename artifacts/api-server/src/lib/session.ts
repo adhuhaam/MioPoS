@@ -1,4 +1,5 @@
 import session from "express-session";
+import type { Request, Response, NextFunction } from "express";
 
 declare module "express-session" {
   interface SessionData {
@@ -19,17 +20,29 @@ export const sessionMiddleware = session({
   },
 });
 
-export function requireAuth(req: any, res: any, next: any) {
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   if (!req.session?.staffId) {
-    return res.status(401).json({ error: "Not authenticated" });
+    res.status(401).json({ error: "Not authenticated" });
+    return;
   }
   next();
 }
 
 export function requireRole(...roles: string[]) {
-  return (req: any, res: any, next: any) => {
-    if (!req.session?.staffId) return res.status(401).json({ error: "Not authenticated" });
-    if (!roles.includes(req.session.role)) return res.status(403).json({ error: "Forbidden" });
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.session?.staffId) {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    if (!roles.includes(req.session.role ?? "")) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     next();
   };
+}
+
+export function resolveOutletId(req: Request, requested?: number): number | undefined {
+  if (req.session.role === "super_admin") return requested;
+  return req.session.outletId;
 }

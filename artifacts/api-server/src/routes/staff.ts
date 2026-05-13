@@ -1,7 +1,8 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { eq } from "drizzle-orm";
-import { db, staffTable } from "@workspace/db";
-import { requireAuth, requireRole } from "../lib/session";
+import { db, staffTable, type StaffRole } from "@workspace/db";
+import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 
 const router = Router();
 
@@ -10,9 +11,11 @@ function stripPin<T extends { pin?: string }>(s: T): Omit<T, "pin"> {
   return rest;
 }
 
-router.get("/staff", requireAuth, async (req, res) => {
+router.get("/staff", requireAuth, async (req: Request, res: Response) => {
   try {
-    const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+
     const staffList = outletId
       ? await db.select().from(staffTable).where(eq(staffTable.outletId, outletId)).orderBy(staffTable.name)
       : await db.select().from(staffTable).orderBy(staffTable.name);
@@ -23,9 +26,14 @@ router.get("/staff", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/staff", requireRole("super_admin", "manager"), async (req, res) => {
+router.post("/staff", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
-    const { outletId, name, role, pin } = req.body;
+    const { outletId, name, role, pin } = req.body as {
+      outletId?: number | null;
+      name: string;
+      role: StaffRole;
+      pin: string;
+    };
     const [member] = await db.insert(staffTable).values({
       outletId: outletId ?? null,
       name,
@@ -39,9 +47,9 @@ router.post("/staff", requireRole("super_admin", "manager"), async (req, res) =>
   }
 });
 
-router.get("/staff/:id", requireAuth, async (req, res) => {
+router.get("/staff/:id", requireAuth, async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const member = await db.query.staffTable.findFirst({ where: eq(staffTable.id, id) });
     if (!member) return res.status(404).json({ error: "Not found" });
     return res.json(stripPin(member));
@@ -51,10 +59,15 @@ router.get("/staff/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req, res) => {
+router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id);
-    const { outletId, name, role, pin } = req.body;
+    const id = parseInt(req.params.id as string);
+    const { outletId, name, role, pin } = req.body as {
+      outletId?: number | null;
+      name?: string;
+      role?: StaffRole;
+      pin?: string;
+    };
     const updates: Record<string, unknown> = {};
     if (outletId !== undefined) updates.outletId = outletId ?? null;
     if (name !== undefined) updates.name = name;
@@ -69,9 +82,9 @@ router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req, re
   }
 });
 
-router.delete("/staff/:id", requireRole("super_admin", "manager"), async (req, res) => {
+router.delete("/staff/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     await db.delete(staffTable).where(eq(staffTable.id, id));
     return res.status(204).send();
   } catch (err) {

@@ -3,6 +3,7 @@ import {
   useListCategories, getListCategoriesQueryKey, useCreateCategory, useUpdateCategory, useDeleteCategory,
   useListMenuItems, getListMenuItemsQueryKey, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem,
 } from "@workspace/api-client-react";
+import type { MenuCategory, MenuItem } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
+
+type ItemForm = { name: string; description: string; price: string; available: boolean };
 
 export default function Menu() {
   const { auth } = useAuth();
@@ -36,16 +39,16 @@ export default function Menu() {
 
   const [catDialog, setCatDialog] = useState(false);
   const [itemDialog, setItemDialog] = useState(false);
-  const [editCat, setEditCat] = useState<any>(null);
-  const [editItem, setEditItem] = useState<any>(null);
+  const [editCat, setEditCat] = useState<MenuCategory | null>(null);
+  const [editItem, setEditItem] = useState<MenuItem | null>(null);
   const [catName, setCatName] = useState("");
-  const [itemForm, setItemForm] = useState({ name: "", description: "", price: "", available: true });
+  const [itemForm, setItemForm] = useState<ItemForm>({ name: "", description: "", price: "", available: true });
 
   const invalidateCats = () => qc.invalidateQueries({ queryKey: getListCategoriesQueryKey({ outletId }) });
   const invalidateItems = () => qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey({ outletId }) });
 
   const openNewCat = () => { setEditCat(null); setCatName(""); setCatDialog(true); };
-  const openEditCat = (c: any) => { setEditCat(c); setCatName(c.name); setCatDialog(true); };
+  const openEditCat = (c: MenuCategory) => { setEditCat(c); setCatName(c.name); setCatDialog(true); };
   const saveCat = () => {
     if (editCat) {
       updateCat.mutate({ id: editCat.id, data: { name: catName } }, {
@@ -65,17 +68,21 @@ export default function Menu() {
   };
 
   const openNewItem = () => { setEditItem(null); setItemForm({ name: "", description: "", price: "", available: true }); setItemDialog(true); };
-  const openEditItem = (i: any) => { setEditItem(i); setItemForm({ name: i.name, description: i.description ?? "", price: i.price.toString(), available: i.available }); setItemDialog(true); };
+  const openEditItem = (i: MenuItem) => {
+    setEditItem(i);
+    setItemForm({ name: i.name, description: i.description ?? "", price: String(i.price), available: i.available });
+    setItemDialog(true);
+  };
   const saveItem = () => {
-    const data: any = { name: itemForm.name, description: itemForm.description || null, price: parseFloat(itemForm.price), available: itemForm.available };
+    const itemData = { name: itemForm.name, description: itemForm.description || undefined, price: parseFloat(itemForm.price), available: itemForm.available };
     if (editItem) {
-      updateItem.mutate({ id: editItem.id, data }, {
+      updateItem.mutate({ id: editItem.id, data: itemData }, {
         onSuccess: () => { toast({ title: "Item updated" }); setItemDialog(false); invalidateItems(); },
         onError: () => toast({ variant: "destructive", title: "Failed" }),
       });
     } else {
       if (!activeCatId) return;
-      createItem.mutate({ data: { ...data, categoryId: activeCatId, outletId } }, {
+      createItem.mutate({ data: { ...itemData, categoryId: activeCatId, outletId } }, {
         onSuccess: () => { toast({ title: "Item created" }); setItemDialog(false); invalidateItems(); },
         onError: () => toast({ variant: "destructive", title: "Failed" }),
       });
@@ -86,7 +93,7 @@ export default function Menu() {
     deleteItem.mutate({ id }, { onSuccess: invalidateItems, onError: () => toast({ variant: "destructive", title: "Failed" }) });
   };
 
-  const toggleAvailable = (item: any) => {
+  const toggleAvailable = (item: MenuItem) => {
     updateItem.mutate({ id: item.id, data: { available: !item.available } }, { onSuccess: invalidateItems });
   };
 

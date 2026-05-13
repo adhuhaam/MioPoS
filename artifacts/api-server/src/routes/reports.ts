@@ -1,11 +1,12 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { eq, and, gte, lte, inArray } from "drizzle-orm";
 import { db, ordersTable, orderItemsTable, tablesTable, outletsTable, type OrderStatus } from "@workspace/db";
-import { requireRole } from "../lib/session";
+import { requireRole, resolveOutletId } from "../lib/session";
 
 const router = Router();
 
-function getPeriodDates(period: string) {
+function getPeriodDates(period: string): { start: Date; end: Date } {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (period === "today") {
@@ -27,13 +28,14 @@ function getPeriodDates(period: string) {
   }
 }
 
-router.get("/reports/outlet", requireRole("super_admin", "manager"), async (req, res) => {
+router.get("/reports/outlet", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
-    const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+    if (!outletId) return res.status(400).json({ error: "outletId is required" });
+
     const period = (req.query.period as string) || "today";
     const { start, end } = getPeriodDates(period);
-
-    if (!outletId) return res.status(400).json({ error: "outletId is required" });
 
     const paidStatuses: OrderStatus[] = ["paid"];
     const paidOrders = await db.select().from(ordersTable).where(
@@ -45,42 +47,59 @@ router.get("/reports/outlet", requireRole("super_admin", "manager"), async (req,
       )
     );
 
-    const revenue = paidOrders.reduce((s, o) => s + parseFloat(o.total), 0);
-    const orderCount = paidOrders.length;
-    const avgOrderValue = orderCount > 0 ? revenue / orderCount : 0;
+    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
+
+    const totalRevenue = paidOrders.reduce((s, o) => s + parseFloat(o.total), 0);
+    const totalOrders = paidOrders.length;
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     const allItems = await Promise.all(paidOrders.map(o =>
       db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, o.id))
     ));
     const flatItems = allItems.flat();
 
-    const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {};
+    const itemCounts: Record<string, { menuItemId: number; menuItemName: string; quantitySold: number; revenue: number }> = {};
     flatItems.forEach(item => {
       if (!itemCounts[item.menuItemName]) {
-        itemCounts[item.menuItemName] = { name: item.menuItemName, count: 0, revenue: 0 };
+        itemCounts[item.menuItemName] = { menuItemId: item.menuItemId, menuItemName: item.menuItemName, quantitySold: 0, revenue: 0 };
       }
-      itemCounts[item.menuItemName].count += item.quantity;
+      itemCounts[item.menuItemName].quantitySold += item.quantity;
       itemCounts[item.menuItemName].revenue += parseFloat(item.total);
     });
-    const topItems = Object.values(itemCounts).sort((a, b) => b.count - a.count).slice(0, 10);
+    const topItems = Object.values(itemCounts).sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 10);
 
-    const dailyMap: Record<string, number> = {};
+    const dailyMap: Record<string, { revenue: number; orders: number }> = {};
     paidOrders.forEach(o => {
       const day = o.createdAt.toISOString().split("T")[0];
-      dailyMap[day] = (dailyMap[day] ?? 0) + parseFloat(o.total);
+      if (!dailyMap[day]) dailyMap[day] = { revenue: 0, orders: 0 };
+      dailyMap[day].revenue += parseFloat(o.total);
+      dailyMap[day].orders += 1;
     });
-    const dailyRevenue = Object.entries(dailyMap).sort().map(([date, revenue]) => ({ date, revenue }));
+    const dailyRevenue = Object.entries(dailyMap).sort().map(([date, d]) => ({
+      date,
+      revenue: d.revenue,
+      orders: d.orders,
+    }));
 
-    return res.json({ outletId, period, revenue, orderCount, avgOrderValue, topItems, dailyRevenue });
+    return res.json({
+      outletId,
+      outletName: outlet?.name ?? "",
+      period,
+      totalRevenue,
+      totalOrders,
+      averageOrderValue,
+      topItems,
+      dailyRevenue,
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.get("/reports/consolidated", requireRole("super_admin"), async (req, res) => {
+router.get("/reports/consolidated", requireRole("super_admin"), async (_req: Request, res: Response) => {
   try {
-    const period = (req.query.period as string) || "today";
+    const period = (_req.query.period as string) || "today";
     const { start, end } = getPeriodDates(period);
 
     const paidStatuses: OrderStatus[] = ["paid"];
@@ -97,31 +116,44 @@ router.get("/reports/consolidated", requireRole("super_admin"), async (req, res)
 
     const totalRevenue = paidOrders.reduce((s, o) => s + parseFloat(o.total), 0);
     const totalOrders = paidOrders.length;
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     const outletBreakdown = outlets.map(outlet => {
       const outletOrders = paidOrders.filter(o => o.outletId === outlet.id);
       const revenue = outletOrders.reduce((s, o) => s + parseFloat(o.total), 0);
-      return { outletId: outlet.id, outletName: outlet.name, revenue, orderCount: outletOrders.length };
+      return {
+        outletId: outlet.id,
+        outletName: outlet.name,
+        revenue,
+        orders: outletOrders.length,
+      };
     });
 
-    const dailyMap: Record<string, number> = {};
+    const dailyMap: Record<string, { revenue: number; orders: number }> = {};
     paidOrders.forEach(o => {
       const day = o.createdAt.toISOString().split("T")[0];
-      dailyMap[day] = (dailyMap[day] ?? 0) + parseFloat(o.total);
+      if (!dailyMap[day]) dailyMap[day] = { revenue: 0, orders: 0 };
+      dailyMap[day].revenue += parseFloat(o.total);
+      dailyMap[day].orders += 1;
     });
-    const dailyRevenue = Object.entries(dailyMap).sort().map(([date, revenue]) => ({ date, revenue }));
+    const dailyRevenue = Object.entries(dailyMap).sort().map(([date, d]) => ({
+      date,
+      revenue: d.revenue,
+      orders: d.orders,
+    }));
 
-    return res.json({ period, totalRevenue, totalOrders, avgOrderValue, outletBreakdown, dailyRevenue });
+    return res.json({ period, totalRevenue, totalOrders, averageOrderValue, outletBreakdown, dailyRevenue });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.get("/reports/dashboard", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
+router.get("/reports/dashboard", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
   try {
-    const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);

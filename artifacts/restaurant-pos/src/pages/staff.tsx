@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useListStaff, getListStaffQueryKey, useCreateStaff, useUpdateStaff, useDeleteStaff, useListOutlets, getListOutletsQueryKey } from "@workspace/api-client-react";
+import { useListStaff, getListStaffQueryKey, useCreateStaff, useUpdateStaff, useDeleteStaff, useListOutlets, getListOutletsQueryKey, StaffInputRole, StaffUpdateRole } from "@workspace/api-client-react";
+import type { Staff } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
@@ -45,24 +45,28 @@ export default function Staff() {
   const invalidate = () => qc.invalidateQueries({ queryKey: getListStaffQueryKey(outletId ? { outletId } : {}) });
 
   const openCreate = () => { setEditing(null); setForm({ ...empty, outletId: outletId?.toString() ?? "" }); setOpen(true); };
-  const openEdit = (s: any) => { setEditing(s.id); setForm({ outletId: s.outletId?.toString() ?? "", name: s.name, role: s.role, pin: "" }); setOpen(true); };
+  const openEdit = (s: Staff) => {
+    setEditing(s.id);
+    setForm({ outletId: s.outletId?.toString() ?? "", name: s.name, role: s.role, pin: "" });
+    setOpen(true);
+  };
 
   const submit = (): void => {
-    const data: any = {
+    const baseData: { name: string; role: string; outletId: number | null; pin?: string } = {
       name: form.name,
       role: form.role,
       outletId: form.outletId ? parseInt(form.outletId) : null,
     };
-    if (form.pin) data.pin = form.pin;
+    if (form.pin) baseData.pin = form.pin;
+
     if (editing === null) {
       if (!form.pin) { toast({ variant: "destructive", title: "PIN is required" }); return; }
-      data.pin = form.pin;
-      create.mutate({ data }, {
+      create.mutate({ data: { ...baseData, pin: form.pin, role: form.role as StaffInputRole } }, {
         onSuccess: () => { toast({ title: "Staff created" }); setOpen(false); invalidate(); },
         onError: () => toast({ variant: "destructive", title: "Failed to create" }),
       });
     } else {
-      upd.mutate({ id: editing, data }, {
+      upd.mutate({ id: editing, data: { ...baseData, role: baseData.role as StaffUpdateRole | undefined } }, {
         onSuccess: () => { toast({ title: "Staff updated" }); setOpen(false); invalidate(); },
         onError: () => toast({ variant: "destructive", title: "Failed to update" }),
       });
@@ -101,7 +105,7 @@ export default function Staff() {
               </tr>
             </thead>
             <tbody>
-              {staff?.map((s, i) => (
+              {staff?.map((s: Staff, i: number) => (
                 <tr key={s.id} data-testid={`row-staff-${s.id}`} className={`border-b border-border last:border-0 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
                   <td className="px-4 py-3 font-medium">{s.name}</td>
                   <td className="px-4 py-3">

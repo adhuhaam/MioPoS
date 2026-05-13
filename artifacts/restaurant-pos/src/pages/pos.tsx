@@ -4,10 +4,10 @@ import {
   useListCategories, getListCategoriesQueryKey,
   useListMenuItems, getListMenuItemsQueryKey,
   useListTables, getListTablesQueryKey,
-  useListOrders, getListOrdersQueryKey,
   useCreateOrder, useGetOrder, getGetOrderQueryKey,
   useAddOrderItem, useRemoveOrderItem, useUpdateOrder, useRecordPayment,
 } from "@workspace/api-client-react";
+import type { MenuItem, OrderDetail, OrderItem } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ShoppingCart, X, Plus, Minus, Send, Receipt, CreditCard } from "lucide-react";
+import { ShoppingCart, X, Send, Receipt, CreditCard } from "lucide-react";
+
+type PayMethod = "cash" | "card" | "split";
 
 export default function POS() {
   const { auth } = useAuth();
@@ -33,7 +35,7 @@ export default function POS() {
   const [activeCatId, setActiveCatId] = useState<number | null>(null);
   const [discountPercent, setDiscountPercent] = useState("");
   const [payDialog, setPayDialog] = useState(false);
-  const [payMethod, setPayMethod] = useState<"cash" | "card" | "split">("cash");
+  const [payMethod, setPayMethod] = useState<PayMethod>("cash");
   const [payAmount, setPayAmount] = useState("");
 
   const { data: categories } = useListCategories({ outletId }, { query: { queryKey: getListCategoriesQueryKey({ outletId }) } });
@@ -60,12 +62,12 @@ export default function POS() {
     }
   }, [urlTableId]);
 
-  const findOrCreateOrder = async (tableId: number) => {
+  const findOrCreateOrder = (tableId: number) => {
     setSelectedTableId(tableId);
     createOrder.mutate(
       { data: { outletId, tableId, staffId: auth!.staff.id } },
       {
-        onSuccess: (o: any) => {
+        onSuccess: (o: OrderDetail) => {
           setActiveOrderId(o.id);
           qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
         },
@@ -78,7 +80,7 @@ export default function POS() {
     findOrCreateOrder(parseInt(tableId));
   };
 
-  const handleAddItem = (item: any) => {
+  const handleAddItem = (item: MenuItem) => {
     if (!activeOrderId) return;
     addItem.mutate(
       { id: activeOrderId, data: { menuItemId: item.id, quantity: 1 } },
@@ -118,7 +120,7 @@ export default function POS() {
         onSuccess: () => {
           refetchOrder();
           qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
-          setPayAmount(order?.total?.toString() ?? "");
+          setPayAmount(String(order?.total ?? ""));
           setPayDialog(true);
         }
       }
@@ -142,11 +144,12 @@ export default function POS() {
     );
   };
 
-  const items = (order as any)?.items ?? [];
-  const subtotal = parseFloat((order as any)?.subtotal ?? "0");
-  const tax = parseFloat((order as any)?.taxAmount ?? "0");
-  const discount = parseFloat((order as any)?.discountAmount ?? "0");
-  const total = parseFloat((order as any)?.total ?? "0");
+  const typedOrder = order as OrderDetail | undefined;
+  const items: OrderItem[] = typedOrder?.items ?? [];
+  const subtotal = Number(typedOrder?.subtotal ?? 0);
+  const tax = Number(typedOrder?.taxAmount ?? 0);
+  const discount = Number(typedOrder?.discountAmount ?? 0);
+  const total = Number(typedOrder?.total ?? 0);
 
   const availTables = tables?.filter(t => t.status === "available") ?? [];
 
@@ -213,13 +216,13 @@ export default function POS() {
         </div>
 
         <div className="flex-1 overflow-auto p-3 space-y-2">
-          {items.map((item: any) => (
+          {items.map((item: OrderItem) => (
             <div key={item.id} data-testid={`order-item-${item.id}`} className="flex items-center gap-2 bg-muted/30 rounded-lg p-2.5">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{item.menuItemName}</p>
-                <p className="text-xs text-muted-foreground">${parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}</p>
+                <p className="text-xs text-muted-foreground">${Number(item.unitPrice).toFixed(2)} × {item.quantity}</p>
               </div>
-              <p className="text-sm font-semibold">${parseFloat(item.total).toFixed(2)}</p>
+              <p className="text-sm font-semibold">${Number(item.total).toFixed(2)}</p>
               <button onClick={() => handleRemoveItem(item.id)} data-testid={`button-remove-item-${item.id}`} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -269,7 +272,7 @@ export default function POS() {
             </div>
             <div>
               <Label>Payment Method</Label>
-              <Select value={payMethod} onValueChange={v => setPayMethod(v as any)}>
+              <Select value={payMethod} onValueChange={v => setPayMethod(v as PayMethod)}>
                 <SelectTrigger data-testid="select-pay-method"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash</SelectItem>

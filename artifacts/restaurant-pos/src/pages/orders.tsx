@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useListOrders, getListOrdersQueryKey } from "@workspace/api-client-react";
+import type { Order, OrderStatus } from "@workspace/api-client-react";
 import { useAuth } from "../lib/auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -15,22 +16,23 @@ const STATUS_STYLE: Record<string, string> = {
 export default function Orders() {
   const { auth } = useAuth();
   const outletId = auth!.outlet.id;
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
   const [search, setSearch] = useState("");
 
-  const params: any = { outletId };
-  if (statusFilter !== "all") params.status = statusFilter;
+  const listParams = statusFilter !== "all"
+    ? { outletId, status: statusFilter }
+    : { outletId };
 
-  const { data, isLoading } = useListOrders(params, {
-    query: { queryKey: getListOrdersQueryKey(params) }
+  const { data, isLoading } = useListOrders(listParams, {
+    query: { queryKey: getListOrdersQueryKey(listParams) }
   });
 
-  const orders = (data as any)?.orders ?? [];
-  const filtered = orders.filter((o: any) => {
+  const orders: Order[] = data?.orders ?? [];
+  const filtered = orders.filter((o: Order) => {
     if (!search) return true;
     return (
       o.id.toString().includes(search) ||
-      (o.tableName ?? "").toLowerCase().includes(search.toLowerCase())
+      o.tableName.toLowerCase().includes(search.toLowerCase())
     );
   });
 
@@ -52,7 +54,7 @@ export default function Orders() {
             data-testid="input-search-orders"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={v => setStatusFilter(v as "all" | OrderStatus)}>
           <SelectTrigger className="w-40" data-testid="select-order-status">
             <SelectValue />
           </SelectTrigger>
@@ -76,13 +78,12 @@ export default function Orders() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Order #</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Table</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Items</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Total</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Date</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((order: any, i: number) => (
+              {filtered.map((order: Order, i: number) => (
                 <tr key={order.id} data-testid={`row-order-${order.id}`} className={`border-b border-border last:border-0 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
                   <td className="px-4 py-3 font-mono font-semibold">#{order.id}</td>
                   <td className="px-4 py-3 text-muted-foreground">{order.tableName || `Table #${order.tableId}`}</td>
@@ -91,8 +92,7 @@ export default function Orders() {
                       {order.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{order.items?.length ?? 0}</td>
-                  <td className="px-4 py-3 text-right font-semibold">${parseFloat(order.total || "0").toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-semibold">${Number(order.total).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-muted-foreground text-xs">{new Date(order.createdAt).toLocaleString()}</td>
                 </tr>
               ))}

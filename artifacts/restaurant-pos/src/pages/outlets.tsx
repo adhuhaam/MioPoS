@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useListOutlets, getListOutletsQueryKey, useCreateOutlet, useUpdateOutlet, useDeleteOutlet } from "@workspace/api-client-react";
+import type { Outlet } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,9 +28,9 @@ export default function Outlets() {
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
-  const openEdit = (o: any) => {
+  const openEdit = (o: Outlet) => {
     setEditing(o.id);
-    setForm({ name: o.name, address: o.address, phone: o.phone, taxRate: o.taxRate?.toString() ?? "0", currency: o.currency });
+    setForm({ name: o.name, address: o.address, phone: o.phone, taxRate: String(o.taxRate ?? "0"), currency: o.currency });
     setOpen(true);
   };
 
@@ -72,7 +73,7 @@ export default function Outlets() {
         <div className="text-muted-foreground">Loading...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {outlets?.map(outlet => (
+          {outlets?.map((outlet: Outlet) => (
             <div key={outlet.id} data-testid={`card-outlet-${outlet.id}`} className="border border-border rounded-xl p-5 bg-card space-y-3 hover:border-primary/40 transition-colors">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
@@ -92,7 +93,7 @@ export default function Outlets() {
               <div className="text-sm text-muted-foreground space-y-1">
                 <p>{outlet.address}</p>
                 <p>{outlet.phone}</p>
-                <p className="text-xs">Tax: {outlet.taxRate}%</p>
+                <p className="text-xs">Tax: {String(outlet.taxRate)}%</p>
               </div>
             </div>
           ))}

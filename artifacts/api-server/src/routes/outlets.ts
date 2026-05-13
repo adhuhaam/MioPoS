@@ -34,7 +34,7 @@ router.post("/outlets", requireRole("super_admin"), async (req, res) => {
 
 router.get("/outlets/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, id) });
     if (!outlet) return res.status(404).json({ error: "Not found" });
     return res.json(outlet);
@@ -46,7 +46,7 @@ router.get("/outlets/:id", async (req, res) => {
 
 router.patch("/outlets/:id", requireRole("super_admin"), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { name, address, phone, taxRate, currency } = req.body;
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
@@ -65,7 +65,7 @@ router.patch("/outlets/:id", requireRole("super_admin"), async (req, res) => {
 
 router.delete("/outlets/:id", requireRole("super_admin"), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     await db.delete(outletsTable).where(eq(outletsTable.id, id));
     return res.status(204).send();
   } catch (err) {

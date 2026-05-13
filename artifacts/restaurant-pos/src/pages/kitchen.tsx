@@ -1,10 +1,13 @@
+import { useEffect } from "react";
 import { useListKitchenOrders, getListKitchenOrdersQueryKey, useUpdateOrderItem } from "@workspace/api-client-react";
+import type { KitchenOrder, OrderItem, OrderItemUpdateKitchenStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Clock, ChefHat } from "lucide-react";
 
-const KITCHEN_STATUS_ORDER = ["pending", "preparing", "ready", "served"];
+const KITCHEN_STATUS_ORDER: OrderItemUpdateKitchenStatus[] = ["pending", "preparing", "ready", "served"];
+
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
   preparing: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200",
@@ -12,7 +15,7 @@ const STATUS_STYLE: Record<string, string> = {
   served: "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500",
 };
 
-function timeAgo(date: string | Date) {
+function timeAgo(date: string | Date): string {
   const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
@@ -25,20 +28,40 @@ export default function Kitchen() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
+  const queryKey = getListKitchenOrdersQueryKey({ outletId });
+
   const { data: orders, isLoading } = useListKitchenOrders(
     { outletId },
-    { query: { queryKey: getListKitchenOrdersQueryKey({ outletId }), refetchInterval: 10000 } }
+    { query: { queryKey, refetchInterval: 30000 } }
   );
+
+  useEffect(() => {
+    const url = new URL(`/api/kitchen/orders/stream`, window.location.origin);
+    url.searchParams.set("outletId", outletId.toString());
+    const es = new EventSource(url.toString(), { withCredentials: true });
+
+    es.onmessage = (event: MessageEvent) => {
+      try {
+        const data: KitchenOrder[] = JSON.parse(event.data as string);
+        qc.setQueryData(queryKey, data);
+      } catch {
+        // ignore malformed events
+      }
+    };
+
+    return () => es.close();
+  }, [outletId]);
 
   const updateItem = useUpdateOrderItem();
 
   const advanceStatus = (orderId: number, itemId: number, current: string) => {
-    const next = KITCHEN_STATUS_ORDER[KITCHEN_STATUS_ORDER.indexOf(current) + 1];
+    const currentIdx = KITCHEN_STATUS_ORDER.indexOf(current as OrderItemUpdateKitchenStatus);
+    const next = KITCHEN_STATUS_ORDER[currentIdx + 1];
     if (!next) return;
     updateItem.mutate(
-      { id: orderId, itemId, data: { kitchenStatus: next as any } },
+      { id: orderId, itemId, data: { kitchenStatus: next } },
       {
-        onSuccess: () => qc.invalidateQueries({ queryKey: getListKitchenOrdersQueryKey({ outletId }) }),
+        onSuccess: () => qc.invalidateQueries({ queryKey }),
         onError: () => toast({ variant: "destructive", title: "Failed to update status" }),
       }
     );
@@ -51,7 +74,7 @@ export default function Kitchen() {
           <ChefHat className="w-7 h-7" />
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Kitchen Display</h1>
-            <p className="text-muted-foreground text-sm">Auto-refreshes every 10 seconds</p>
+            <p className="text-muted-foreground text-sm">Live updates via server-sent events</p>
           </div>
         </div>
         <div data-testid="status-order-count" className="text-sm text-muted-foreground">{orders?.length ?? 0} active orders</div>
@@ -67,7 +90,7 @@ export default function Kitchen() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {orders.map((order: any) => (
+          {orders.map((order: KitchenOrder) => (
             <div key={order.id} data-testid={`card-kitchen-order-${order.id}`} className="border border-border rounded-xl bg-card overflow-hidden">
               <div className="bg-muted/50 px-4 py-3 flex items-center justify-between border-b border-border">
                 <div>
@@ -80,7 +103,7 @@ export default function Kitchen() {
                 </div>
               </div>
               <div className="p-3 space-y-2">
-                {order.items.map((item: any) => (
+                {order.items.map((item: OrderItem) => (
                   <button
                     key={item.id}
                     data-testid={`button-kitchen-item-${item.id}`}
