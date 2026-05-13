@@ -579,6 +579,71 @@ paths:
         "204":
           description: Deleted
 
+  # ── Menu Item ↔ Modifier Group assignments ───────────────────────────────
+  /menu/items/{itemId}/modifier-groups:
+    get:
+      operationId: listItemModifierGroups
+      tags: [menu]
+      summary: List modifier groups assigned to a menu item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Modifier groups with options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModifierGroup"
+    post:
+      operationId: assignItemModifierGroup
+      tags: [menu]
+      summary: Assign a modifier group to a menu item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemModifierGroupInput"
+      responses:
+        "201":
+          description: Assignment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemModifierGroupAssignment"
+
+  /menu/items/{itemId}/modifier-groups/{groupId}:
+    delete:
+      operationId: unassignItemModifierGroup
+      tags: [menu]
+      summary: Remove a modifier group from a menu item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
   # ── Tables ────────────────────────────────────────────────────────────────
   /tables:
     get:
@@ -1016,6 +1081,23 @@ paths:
 
 components:
   schemas:
+    ItemModifierGroupInput:
+      type: object
+      required: [modifierGroupId]
+      properties:
+        modifierGroupId:
+          type: integer
+
+    ItemModifierGroupAssignment:
+      type: object
+      properties:
+        id:
+          type: integer
+        menuItemId:
+          type: integer
+        modifierGroupId:
+          type: integer
+
     HealthStatus:
       type: object
       properties:

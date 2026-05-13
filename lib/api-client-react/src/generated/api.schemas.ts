@@ -5,6 +5,16 @@
  * Restaurant Chain POS API
  * OpenAPI spec version: 0.1.0
  */
+export interface ItemModifierGroupInput {
+  modifierGroupId: number;
+}
+
+export interface ItemModifierGroupAssignment {
+  id?: number;
+  menuItemId?: number;
+  modifierGroupId?: number;
+}
+
 export interface HealthStatus {
   status: string;
 }

@@ -4,6 +4,8 @@ import {
   useListMenuItems, getListMenuItemsQueryKey, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem,
   useListModifierGroups, useCreateModifierGroup, useUpdateModifierGroup, useDeleteModifierGroup,
   useAddModifierOption, useDeleteModifierOption,
+  useListItemModifierGroups, getListItemModifierGroupsQueryKey,
+  useAssignItemModifierGroup, useUnassignItemModifierGroup,
 } from "@workspace/api-client-react";
 import type { MenuCategory, MenuItem, ModifierGroup } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -48,6 +50,8 @@ export default function Menu() {
 
   const [catDialog, setCatDialog] = useState(false);
   const [itemDialog, setItemDialog] = useState(false);
+  const [modGroupAssignDialog, setModGroupAssignDialog] = useState(false);
+  const [modGroupAssignItemId, setModGroupAssignItemId] = useState<number | null>(null);
   const [editCat, setEditCat] = useState<MenuCategory | null>(null);
   const [editItem, setEditItem] = useState<MenuItem | null>(null);
   const [catName, setCatName] = useState("");
@@ -103,6 +107,37 @@ export default function Menu() {
   };
   const toggleAvailable = (item: MenuItem) => {
     updateItem.mutate({ id: item.id, data: { available: !item.available } }, { onSuccess: invalidateItems });
+  };
+
+  // ── Item ↔ Modifier group assignment ─────────────────────────────────────
+  const { data: itemAssignedGroups, refetch: refetchItemGroups } = useListItemModifierGroups(
+    modGroupAssignItemId ?? 0,
+    { query: { enabled: !!modGroupAssignItemId, queryKey: getListItemModifierGroupsQueryKey(modGroupAssignItemId ?? 0) } }
+  );
+  const assignGroup = useAssignItemModifierGroup();
+  const unassignGroup = useUnassignItemModifierGroup();
+
+  const openModGroupAssign = (itemId: number) => {
+    setModGroupAssignItemId(itemId);
+    setModGroupAssignDialog(true);
+  };
+
+  const handleAssignGroup = (groupId: number) => {
+    if (!modGroupAssignItemId) return;
+    const alreadyAssigned = itemAssignedGroups?.some((g: ModifierGroup) => g.id === groupId);
+    if (alreadyAssigned) return;
+    assignGroup.mutate(
+      { itemId: modGroupAssignItemId, data: { modifierGroupId: groupId } },
+      { onSuccess: () => refetchItemGroups(), onError: () => toast({ variant: "destructive", title: "Failed to assign" }) }
+    );
+  };
+
+  const handleUnassignGroup = (groupId: number) => {
+    if (!modGroupAssignItemId) return;
+    unassignGroup.mutate(
+      { itemId: modGroupAssignItemId, groupId },
+      { onSuccess: () => refetchItemGroups(), onError: () => toast({ variant: "destructive", title: "Failed to remove" }) }
+    );
   };
 
   // ── Modifier data ────────────────────────────────────────────────────────
@@ -234,6 +269,7 @@ export default function Menu() {
                         {item.description && <p className="text-xs text-muted-foreground truncate">{item.description}</p>}
                       </div>
                       <div className="flex gap-1 ml-2">
+                        <button onClick={() => openModGroupAssign(item.id)} data-testid={`button-item-modifiers-${item.id}`} title="Modifier groups" className="p-1 rounded hover:bg-muted text-muted-foreground"><Plus className="w-3.5 h-3.5" /></button>
                         <button onClick={() => openEditItem(item)} data-testid={`button-edit-item-${item.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3.5 h-3.5" /></button>
                         <button onClick={() => removeItem(item.id)} data-testid={`button-delete-item-${item.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
@@ -360,6 +396,49 @@ export default function Menu() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setGroupDialog(false)}>Cancel</Button>
             <Button onClick={saveGroup} disabled={createGroup.isPending || updateGroup.isPending} data-testid="button-save-modifier-group">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Item Modifier Group Assignment Dialog */}
+      <Dialog open={modGroupAssignDialog} onOpenChange={open => { if (!open) { setModGroupAssignDialog(false); setModGroupAssignItemId(null); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Assign Modifier Groups to Item</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-semibold mb-2">Currently assigned</p>
+              {itemAssignedGroups && itemAssignedGroups.length > 0 ? (
+                <div className="space-y-1">
+                  {itemAssignedGroups.map((g: ModifierGroup) => (
+                    <div key={g.id} className="flex items-center justify-between text-sm px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                      <span>{g.name}</span>
+                      <button onClick={() => handleUnassignGroup(g.id)} className="text-destructive hover:opacity-80" data-testid={`button-unassign-group-${g.id}`}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No modifier groups assigned yet.</p>
+              )}
+            </div>
+            {modifierGroups && modifierGroups.filter(g => !itemAssignedGroups?.some((a: ModifierGroup) => a.id === g.id)).length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Add modifier group</p>
+                <div className="space-y-1">
+                  {modifierGroups.filter(g => !itemAssignedGroups?.some((a: ModifierGroup) => a.id === g.id)).map(g => (
+                    <button key={g.id} onClick={() => handleAssignGroup(g.id)}
+                      className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                      data-testid={`button-assign-group-${g.id}`}>
+                      {g.name} <span className="text-muted-foreground text-xs">({g.options.length} options)</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setModGroupAssignDialog(false); setModGroupAssignItemId(null); }}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

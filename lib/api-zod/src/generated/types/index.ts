@@ -16,6 +16,8 @@ export * from "./getDashboardParams";
 export * from "./getOutletReportParams";
 export * from "./getOutletReportPeriod";
 export * from "./healthStatus";
+export * from "./itemModifierGroupAssignment";
+export * from "./itemModifierGroupInput";
 export * from "./kitchenOrder";
 export * from "./kitchenOrderStatus";
 export * from "./listCategoriesParams";

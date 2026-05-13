@@ -18,11 +18,12 @@ import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 const router = Router();
 
 function recalcOrder(
-  items: Array<{ unitPrice: string; quantity: number }>,
+  items: Array<{ unitPrice: string; quantity: number; total: string }>,
   taxRate: number,
   discountPercent?: string | null
 ): { subtotal: number; discountAmount: number; taxAmount: number; total: number } {
-  const subtotal = items.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
+  // Use stored item totals which already include modifier price adjustments
+  const subtotal = items.reduce((s, i) => s + parseFloat(i.total), 0);
   const dp = discountPercent ? parseFloat(discountPercent) : 0;
   const discountAmount = subtotal * (dp / 100);
   const taxable = subtotal - discountAmount;
@@ -204,11 +205,12 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
       menuItemName: menuItem.name,
       quantity: qty,
       unitPrice: unitPrice.toFixed(2),
-      total: total.toFixed(2),
+      total: (unitPrice * qty).toFixed(2),
       notes: notes ?? null,
       kitchenStatus: "pending",
     }).returning();
 
+    let modifierAdj = 0;
     if (modifierOptionIds && modifierOptionIds.length > 0) {
       for (const optId of modifierOptionIds) {
         const opt = await db.query.modifierOptionsTable.findFirst({ where: (t, { eq: eqFn }) => eqFn(t.id, optId) });
@@ -219,7 +221,14 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
             name: opt.name,
             priceAdjustment: opt.priceAdjustment,
           });
+          modifierAdj += parseFloat(opt.priceAdjustment);
         }
+      }
+      // Update item total to include modifier price adjustments
+      if (modifierAdj !== 0) {
+        const itemTotal = (unitPrice + modifierAdj) * qty;
+        await db.update(orderItemsTable).set({ total: itemTotal.toFixed(2) }).where(eq(orderItemsTable.id, item.id));
+        item.total = itemTotal.toFixed(2);
       }
     }
 
@@ -265,8 +274,10 @@ router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res:
 
     const updates: Record<string, unknown> = {};
     if (quantity !== undefined) {
+      const existingMods = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
+      const modAdj = existingMods.reduce((s, m) => s + parseFloat(m.priceAdjustment), 0);
       updates.quantity = quantity;
-      updates.total = (parseFloat(orderItem.unitPrice) * quantity).toFixed(2);
+      updates.total = ((parseFloat(orderItem.unitPrice) + modAdj) * quantity).toFixed(2);
     }
     if (notes !== undefined) updates.notes = notes;
     if (kitchenStatus !== undefined) updates.kitchenStatus = kitchenStatus;

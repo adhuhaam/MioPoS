@@ -6,7 +6,7 @@ import {
   useListTables, getListTablesQueryKey,
   useCreateOrder, useGetOrder, getGetOrderQueryKey,
   useAddOrderItem, useRemoveOrderItem, useUpdateOrder, useRecordPayment,
-  useListModifierGroups,
+  listOrders, listItemModifierGroups, getListItemModifierGroupsQueryKey,
 } from "@workspace/api-client-react";
 import type { MenuItem, OrderDetail, OrderItem, ModifierGroup } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,10 +20,6 @@ import { useToast } from "@/hooks/use-toast";
 import { ShoppingCart, X, Send, Receipt, CreditCard, Banknote, SplitSquareHorizontal } from "lucide-react";
 
 type PayMode = "cash" | "card" | "split";
-
-function getListModifierGroupsQueryKey(params: { outletId: number }) {
-  return ["listModifierGroups", params];
-}
 
 export default function POS() {
   const { auth } = useAuth();
@@ -48,14 +44,12 @@ export default function POS() {
   // Modifier selection state
   const [modifierDialog, setModifierDialog] = useState(false);
   const [pendingItem, setPendingItem] = useState<MenuItem | null>(null);
+  const [itemModGroups, setItemModGroups] = useState<ModifierGroup[]>([]);
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
 
   const { data: categories } = useListCategories({ outletId }, { query: { queryKey: getListCategoriesQueryKey({ outletId }) } });
   const { data: menuItems } = useListMenuItems({ outletId }, { query: { queryKey: getListMenuItemsQueryKey({ outletId }) } });
   const { data: tables } = useListTables({ outletId }, { query: { queryKey: getListTablesQueryKey({ outletId }) } });
-  const { data: modifierGroups } = useListModifierGroups({ outletId }, {
-    query: { enabled: !!outletId, queryKey: getListModifierGroupsQueryKey({ outletId }) },
-  });
 
   const curCatId = activeCatId ?? categories?.[0]?.id;
   const catItems = menuItems?.filter(i => i.categoryId === curCatId && i.available) ?? [];
@@ -84,8 +78,22 @@ export default function POS() {
     }
   }, [urlTableId]);
 
-  const findOrCreateOrder = (tableId: number) => {
+  const findOrCreateOrder = async (tableId: number) => {
     setSelectedTableId(tableId);
+    try {
+      const res = await qc.fetchQuery({
+        queryKey: ["/api/orders", { outletId, tableId, status: "open" }],
+        queryFn: () => listOrders({ outletId, tableId, status: "open" as const }),
+        staleTime: 0,
+      });
+      if (res.orders && res.orders.length > 0) {
+        setActiveOrderId(res.orders[0].id);
+        qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
+        return;
+      }
+    } catch {
+      // fall through to create
+    }
     createOrder.mutate(
       { data: { outletId, tableId, staffId: auth!.staff.id } },
       {
@@ -102,11 +110,22 @@ export default function POS() {
     findOrCreateOrder(parseInt(tableId));
   };
 
-  const handleAddItem = (item: MenuItem) => {
+  const handleAddItem = async (item: MenuItem) => {
     if (!activeOrderId) return;
-    const hasModifiers = modifierGroups && modifierGroups.length > 0;
-    if (hasModifiers) {
+    let groups: ModifierGroup[] = [];
+    try {
+      const result = await qc.fetchQuery({
+        queryKey: getListItemModifierGroupsQueryKey(item.id),
+        queryFn: () => listItemModifierGroups(item.id),
+        staleTime: 30000,
+      });
+      groups = (result ?? []) as ModifierGroup[];
+    } catch {
+      // no groups or fetch error — add directly
+    }
+    if (groups.length > 0) {
       setPendingItem(item);
+      setItemModGroups(groups);
       setSelectedOptionIds([]);
       setModifierDialog(true);
     } else {
@@ -133,7 +152,7 @@ export default function POS() {
     setSelectedOptionIds([]);
   };
 
-  const toggleOptionId = (group: ModifierGroup, optId: number) => {
+  const toggleOptionId = (group: { multiSelect: boolean; options: Array<{ id: number }> }, optId: number) => {
     if (group.multiSelect) {
       setSelectedOptionIds(prev =>
         prev.includes(optId) ? prev.filter(id => id !== optId) : [...prev, optId]
@@ -353,7 +372,8 @@ export default function POS() {
             <DialogTitle>Customise: {pendingItem?.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 max-h-80 overflow-y-auto py-1">
-            {modifierGroups?.map(group => (
+            {itemModGroups.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No customisations available.</p>}
+            {itemModGroups.map(group => (
               <div key={group.id}>
                 <p className="text-sm font-semibold mb-1.5">
                   {group.name}

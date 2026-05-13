@@ -24,6 +24,8 @@ import type {
   GetDashboardParams,
   GetOutletReportParams,
   HealthStatus,
+  ItemModifierGroupAssignment,
+  ItemModifierGroupInput,
   KitchenOrder,
   ListCategoriesParams,
   ListKitchenOrdersParams,
@@ -2556,6 +2558,274 @@ export const useDeleteModifierOption = <
   TContext
 > => {
   return useMutation(getDeleteModifierOptionMutationOptions(options));
+};
+
+/**
+ * @summary List modifier groups assigned to a menu item
+ */
+export const getListItemModifierGroupsUrl = (itemId: number) => {
+  return `/api/menu/items/${itemId}/modifier-groups`;
+};
+
+export const listItemModifierGroups = async (
+  itemId: number,
+  options?: RequestInit,
+): Promise<ModifierGroup[]> => {
+  return customFetch<ModifierGroup[]>(getListItemModifierGroupsUrl(itemId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListItemModifierGroupsQueryKey = (itemId: number) => {
+  return [`/api/menu/items/${itemId}/modifier-groups`] as const;
+};
+
+export const getListItemModifierGroupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listItemModifierGroups>>,
+  TError = ErrorType<unknown>,
+>(
+  itemId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listItemModifierGroups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListItemModifierGroupsQueryKey(itemId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listItemModifierGroups>>
+  > = ({ signal }) =>
+    listItemModifierGroups(itemId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!itemId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listItemModifierGroups>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListItemModifierGroupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listItemModifierGroups>>
+>;
+export type ListItemModifierGroupsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List modifier groups assigned to a menu item
+ */
+
+export function useListItemModifierGroups<
+  TData = Awaited<ReturnType<typeof listItemModifierGroups>>,
+  TError = ErrorType<unknown>,
+>(
+  itemId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listItemModifierGroups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListItemModifierGroupsQueryOptions(itemId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Assign a modifier group to a menu item
+ */
+export const getAssignItemModifierGroupUrl = (itemId: number) => {
+  return `/api/menu/items/${itemId}/modifier-groups`;
+};
+
+export const assignItemModifierGroup = async (
+  itemId: number,
+  itemModifierGroupInput: ItemModifierGroupInput,
+  options?: RequestInit,
+): Promise<ItemModifierGroupAssignment> => {
+  return customFetch<ItemModifierGroupAssignment>(
+    getAssignItemModifierGroupUrl(itemId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(itemModifierGroupInput),
+    },
+  );
+};
+
+export const getAssignItemModifierGroupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignItemModifierGroup>>,
+    TError,
+    { itemId: number; data: BodyType<ItemModifierGroupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof assignItemModifierGroup>>,
+  TError,
+  { itemId: number; data: BodyType<ItemModifierGroupInput> },
+  TContext
+> => {
+  const mutationKey = ["assignItemModifierGroup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof assignItemModifierGroup>>,
+    { itemId: number; data: BodyType<ItemModifierGroupInput> }
+  > = (props) => {
+    const { itemId, data } = props ?? {};
+
+    return assignItemModifierGroup(itemId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AssignItemModifierGroupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof assignItemModifierGroup>>
+>;
+export type AssignItemModifierGroupMutationBody =
+  BodyType<ItemModifierGroupInput>;
+export type AssignItemModifierGroupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Assign a modifier group to a menu item
+ */
+export const useAssignItemModifierGroup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignItemModifierGroup>>,
+    TError,
+    { itemId: number; data: BodyType<ItemModifierGroupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof assignItemModifierGroup>>,
+  TError,
+  { itemId: number; data: BodyType<ItemModifierGroupInput> },
+  TContext
+> => {
+  return useMutation(getAssignItemModifierGroupMutationOptions(options));
+};
+
+/**
+ * @summary Remove a modifier group from a menu item
+ */
+export const getUnassignItemModifierGroupUrl = (
+  itemId: number,
+  groupId: number,
+) => {
+  return `/api/menu/items/${itemId}/modifier-groups/${groupId}`;
+};
+
+export const unassignItemModifierGroup = async (
+  itemId: number,
+  groupId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getUnassignItemModifierGroupUrl(itemId, groupId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getUnassignItemModifierGroupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unassignItemModifierGroup>>,
+    TError,
+    { itemId: number; groupId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unassignItemModifierGroup>>,
+  TError,
+  { itemId: number; groupId: number },
+  TContext
+> => {
+  const mutationKey = ["unassignItemModifierGroup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unassignItemModifierGroup>>,
+    { itemId: number; groupId: number }
+  > = (props) => {
+    const { itemId, groupId } = props ?? {};
+
+    return unassignItemModifierGroup(itemId, groupId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnassignItemModifierGroupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unassignItemModifierGroup>>
+>;
+
+export type UnassignItemModifierGroupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a modifier group from a menu item
+ */
+export const useUnassignItemModifierGroup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unassignItemModifierGroup>>,
+    TError,
+    { itemId: number; groupId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unassignItemModifierGroup>>,
+  TError,
+  { itemId: number; groupId: number },
+  TContext
+> => {
+  return useMutation(getUnassignItemModifierGroupMutationOptions(options));
 };
 
 /**

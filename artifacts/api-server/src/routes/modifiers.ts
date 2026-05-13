@@ -6,6 +6,8 @@ import {
   modifierGroupsTable,
   modifierOptionsTable,
   orderItemModifiersTable,
+  menuItemModifierGroupsTable,
+  menuItemsTable,
   ordersTable,
   orderItemsTable,
   type ModifierGroup,
@@ -173,6 +175,71 @@ router.delete("/menu/modifiers/:groupId/options/:optionId", requireRole("super_a
     }
 
     await db.delete(modifierOptionsTable).where(eq(modifierOptionsTable.id, optionId));
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Menu Item ↔ Modifier Group assignment ─────────────────────────────────
+
+router.get("/menu/items/:itemId/modifier-groups", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const itemId = parseInt(req.params.itemId as string);
+    const menuItem = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, itemId) });
+    if (!menuItem) return res.status(404).json({ error: "Menu item not found" });
+
+    const assignments = await db.select().from(menuItemModifierGroupsTable)
+      .where(eq(menuItemModifierGroupsTable.menuItemId, itemId));
+
+    const groups = await Promise.all(assignments.map(async (a) => {
+      const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, a.modifierGroupId) });
+      if (!group) return null;
+      return groupWithOptions(group);
+    }));
+
+    return res.json(groups.filter(Boolean));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/menu/items/:itemId/modifier-groups", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const itemId = parseInt(req.params.itemId as string);
+    const { modifierGroupId } = req.body as { modifierGroupId: number };
+
+    const menuItem = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, itemId) });
+    if (!menuItem) return res.status(404).json({ error: "Menu item not found" });
+
+    const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, modifierGroupId) });
+    if (!group) return res.status(404).json({ error: "Modifier group not found" });
+    if (!assertOutletAccess(req, group.outletId)) return res.status(403).json({ error: "Forbidden" });
+
+    const [assignment] = await db.insert(menuItemModifierGroupsTable).values({
+      menuItemId: itemId,
+      modifierGroupId,
+    }).returning();
+    return res.status(201).json(assignment);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/menu/items/:itemId/modifier-groups/:groupId", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const itemId = parseInt(req.params.itemId as string);
+    const groupId = parseInt(req.params.groupId as string);
+
+    const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
+    if (group && !assertOutletAccess(req, group.outletId)) return res.status(403).json({ error: "Forbidden" });
+
+    await db.delete(menuItemModifierGroupsTable)
+      .where(eq(menuItemModifierGroupsTable.menuItemId, itemId));
+
     return res.status(204).send();
   } catch (err) {
     console.error(err);

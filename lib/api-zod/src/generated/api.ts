@@ -444,6 +444,51 @@ export const DeleteModifierOptionParams = zod.object({
 });
 
 /**
+ * @summary List modifier groups assigned to a menu item
+ */
+export const ListItemModifierGroupsParams = zod.object({
+  itemId: zod.coerce.number(),
+});
+
+export const ListItemModifierGroupsResponseItem = zod.object({
+  id: zod.number(),
+  outletId: zod.number(),
+  name: zod.string(),
+  required: zod.boolean(),
+  multiSelect: zod.boolean(),
+  options: zod.array(
+    zod.object({
+      id: zod.number(),
+      groupId: zod.number(),
+      name: zod.string(),
+      priceAdjustment: zod.number(),
+    }),
+  ),
+});
+export const ListItemModifierGroupsResponse = zod.array(
+  ListItemModifierGroupsResponseItem,
+);
+
+/**
+ * @summary Assign a modifier group to a menu item
+ */
+export const AssignItemModifierGroupParams = zod.object({
+  itemId: zod.coerce.number(),
+});
+
+export const AssignItemModifierGroupBody = zod.object({
+  modifierGroupId: zod.number(),
+});
+
+/**
+ * @summary Remove a modifier group from a menu item
+ */
+export const UnassignItemModifierGroupParams = zod.object({
+  itemId: zod.coerce.number(),
+  groupId: zod.coerce.number(),
+});
+
+/**
  * @summary List tables for an outlet
  */
 export const ListTablesQueryParams = zod.object({
