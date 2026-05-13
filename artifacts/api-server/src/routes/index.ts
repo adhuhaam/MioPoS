@@ -13,6 +13,7 @@ import kitchenRouter from "./kitchen";
 import reportsRouter from "./reports";
 import customersRouter from "./customers";
 import storageRouter from "./storage";
+import inventoryRouter from "./inventory";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(kitchenRouter);
 router.use(reportsRouter);
 router.use(customersRouter);
 router.use(storageRouter);
+router.use(inventoryRouter);
 
 export default router;

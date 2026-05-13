@@ -116,6 +116,9 @@ export default function MoreScreen() {
               <MenuRow icon="book-open" label="Menu" description="Categories, items & modifiers"
                 onPress={() => router.push("/menu")} tint="#f59e0b" />
               <Divider />
+              <MenuRow icon="package" label="Inventory" description="Stock levels & supply tracking"
+                onPress={() => router.push("/inventory")} tint="#10b981" />
+              <Divider />
               <MenuRow icon="layout" label="Areas & Tables" description="Seating layout & timed rooms"
                 onPress={() => router.push("/areas")} tint="#22c55e" />
               <Divider />

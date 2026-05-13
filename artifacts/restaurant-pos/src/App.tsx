@@ -19,6 +19,7 @@ import Staff from "./pages/staff";
 import Settings from "./pages/settings";
 import Customers from "./pages/customers";
 import QrMenu from "./pages/qr-menu";
+import Inventory from "./pages/inventory";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -52,6 +53,7 @@ function PrivateRouter() {
         {(role === "super_admin" || role === "manager" || role === "cashier") && <Route path="/pos" component={POS} />}
         {(role === "super_admin" || role === "manager" || role === "kitchen") && <Route path="/kitchen" component={Kitchen} />}
         {(role === "super_admin" || role === "manager" || role === "cashier") && <Route path="/orders" component={Orders} />}
+        {(role === "super_admin" || role === "manager") && <Route path="/inventory" component={Inventory} />}
         {(role === "super_admin" || role === "manager") && <Route path="/reports" component={Reports} />}
         {(role === "super_admin" || role === "manager") && <Route path="/staff" component={Staff} />}
         {(role === "super_admin" || role === "manager") && <Route path="/settings" component={Settings} />}

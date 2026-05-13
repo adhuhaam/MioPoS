@@ -8,7 +8,7 @@ import {
   useAssignItemModifierGroup, useUnassignItemModifierGroup,
 } from "@workspace/api-client-react";
 import type { MenuCategory, MenuItem, ModifierGroup } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,17 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
+
+type RecipeLine = { id: number; inventoryItemId: number; inventoryItemName: string; unit: string; quantity: string };
+type InvItem = { id: number; name: string; unit: string };
+
+async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, { credentials: "include", ...options });
+  if (!res.ok) { const e = await res.json().catch(() => ({ error: "Failed" })); throw new Error(e.error ?? "Failed"); }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
 
 type ItemForm = { name: string; description: string; price: string; available: boolean };
 type Tab = "menu" | "modifiers";
@@ -52,6 +62,55 @@ export default function Menu() {
   const [itemDialog, setItemDialog] = useState(false);
   const [modGroupAssignDialog, setModGroupAssignDialog] = useState(false);
   const [modGroupAssignItemId, setModGroupAssignItemId] = useState<number | null>(null);
+
+  // ── Recipe dialog ─────────────────────────────────────────────────────────
+  const [recipeItemId, setRecipeItemId] = useState<number | null>(null);
+  const [recipeDialog, setRecipeDialog] = useState(false);
+  const [newIngredientId, setNewIngredientId] = useState("");
+  const [newIngredientQty, setNewIngredientQty] = useState("");
+  const [recipeAdding, setRecipeAdding] = useState(false);
+  const [recipeRemoving, setRecipeRemoving] = useState<number | null>(null);
+
+  const { data: recipeLines = [], refetch: refetchRecipe } = useQuery<RecipeLine[]>({
+    queryKey: ["recipe", recipeItemId],
+    queryFn: () => apiFetch(`/api/menu/items/${recipeItemId}/recipe`),
+    enabled: !!recipeItemId && recipeDialog,
+  });
+  const { data: inventoryItems = [] } = useQuery<InvItem[]>({
+    queryKey: ["inventory/items-all", outletId],
+    queryFn: () => apiFetch(`/api/inventory/items?outletId=${outletId}`),
+    enabled: recipeDialog,
+  });
+
+  const openRecipeDialog = (itemId: number) => {
+    setRecipeItemId(itemId);
+    setNewIngredientId(""); setNewIngredientQty("");
+    setRecipeDialog(true);
+  };
+  const addRecipeLine = async () => {
+    if (!newIngredientId || !newIngredientQty || !recipeItemId) return;
+    setRecipeAdding(true);
+    try {
+      await apiFetch(`/api/menu/items/${recipeItemId}/recipe`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inventoryItemId: parseInt(newIngredientId), quantity: parseFloat(newIngredientQty) }),
+      });
+      setNewIngredientId(""); setNewIngredientQty("");
+      refetchRecipe();
+      toast({ title: "Ingredient added" });
+    } catch (e: any) { toast({ variant: "destructive", title: e.message }); }
+    finally { setRecipeAdding(false); }
+  };
+  const removeRecipeLine = async (recipeId: number) => {
+    if (!recipeItemId) return;
+    setRecipeRemoving(recipeId);
+    try {
+      await apiFetch(`/api/menu/items/${recipeItemId}/recipe/${recipeId}`, { method: "DELETE" });
+      refetchRecipe();
+      toast({ title: "Ingredient removed" });
+    } catch (e: any) { toast({ variant: "destructive", title: e.message }); }
+    finally { setRecipeRemoving(null); }
+  };
   const [editCat, setEditCat] = useState<MenuCategory | null>(null);
   const [editItem, setEditItem] = useState<MenuItem | null>(null);
   const [catName, setCatName] = useState("");
@@ -269,6 +328,7 @@ export default function Menu() {
                         {item.description && <p className="text-xs text-muted-foreground truncate">{item.description}</p>}
                       </div>
                       <div className="flex gap-1 ml-2">
+                        <button onClick={() => openRecipeDialog(item.id)} data-testid={`button-item-recipe-${item.id}`} title="Recipe / ingredients" className="p-1 rounded hover:bg-muted text-muted-foreground"><FlaskConical className="w-3.5 h-3.5" /></button>
                         <button onClick={() => openModGroupAssign(item.id)} data-testid={`button-item-modifiers-${item.id}`} title="Modifier groups" className="p-1 rounded hover:bg-muted text-muted-foreground"><Plus className="w-3.5 h-3.5" /></button>
                         <button onClick={() => openEditItem(item)} data-testid={`button-edit-item-${item.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3.5 h-3.5" /></button>
                         <button onClick={() => removeItem(item.id)} data-testid={`button-delete-item-${item.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -454,6 +514,114 @@ export default function Menu() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOptionDialogGroupId(null)}>Cancel</Button>
             <Button onClick={saveOption} disabled={addOption.isPending} data-testid="button-save-option">Add Option</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Recipe / Ingredients Dialog */}
+      <Dialog open={recipeDialog} onOpenChange={open => { if (!open) { setRecipeDialog(false); setRecipeItemId(null); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FlaskConical className="w-4 h-4" />
+              Recipe — {items?.find(i => i.id === recipeItemId)?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <p className="text-xs text-muted-foreground">
+              Define which inventory ingredients are consumed per portion. Stock is automatically deducted when an order is paid.
+            </p>
+
+            {/* Current recipe lines */}
+            {recipeLines.length > 0 ? (
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-muted-foreground text-xs">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Ingredient</th>
+                      <th className="text-right px-3 py-2 font-medium">Qty per portion</th>
+                      <th className="px-2 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {recipeLines.map(line => (
+                      <tr key={line.id}>
+                        <td className="px-3 py-2.5 font-medium">{line.inventoryItemName}</td>
+                        <td className="px-3 py-2.5 text-right text-muted-foreground">
+                          {Number(line.quantity).toLocaleString(undefined, { maximumFractionDigits: 4 })} {line.unit}
+                        </td>
+                        <td className="px-2 py-2.5 text-right">
+                          <button
+                            onClick={() => removeRecipeLine(line.id)}
+                            disabled={recipeRemoving === line.id}
+                            className="p-1 rounded hover:bg-muted text-destructive disabled:opacity-40"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
+                No ingredients defined yet. Add one below.
+              </div>
+            )}
+
+            {/* Add ingredient form */}
+            <div className="border border-border rounded-lg p-3 space-y-3 bg-muted/30">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add Ingredient</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Inventory Item</Label>
+                  <select
+                    value={newIngredientId}
+                    onChange={e => setNewIngredientId(e.target.value)}
+                    className="w-full mt-1 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">Select…</option>
+                    {inventoryItems
+                      .filter(inv => !recipeLines.some(r => r.inventoryItemId === inv.id))
+                      .map(inv => (
+                        <option key={inv.id} value={inv.id}>{inv.name} ({inv.unit})</option>
+                      ))}
+                  </select>
+                  {!inventoryItems.length && (
+                    <p className="text-xs text-muted-foreground mt-1">Add inventory items first.</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">
+                    Qty per portion
+                    {newIngredientId && (
+                      <span className="text-muted-foreground ml-1">
+                        ({inventoryItems.find(i => i.id === parseInt(newIngredientId))?.unit})
+                      </span>
+                    )}
+                  </Label>
+                  <Input
+                    className="mt-1 h-8 text-sm"
+                    type="number" step="0.0001" min="0.0001"
+                    placeholder="e.g. 0.25"
+                    value={newIngredientQty}
+                    onChange={e => setNewIngredientQty(e.target.value)}
+                  />
+                </div>
+              </div>
+              <Button
+                size="sm" className="w-full"
+                onClick={addRecipeLine}
+                disabled={!newIngredientId || !newIngredientQty || recipeAdding}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                {recipeAdding ? "Adding…" : "Add Ingredient"}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setRecipeDialog(false); setRecipeItemId(null); }}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

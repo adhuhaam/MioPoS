@@ -14,6 +14,7 @@ import {
   Settings,
   LogOut,
   UserCircle,
+  Package,
 } from "lucide-react";
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
@@ -34,6 +35,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     { href: "/kitchen", label: "Kitchen", icon: ChefHat, roles: ["super_admin", "manager", "kitchen"] },
     { href: "/orders", label: "Orders", icon: History, roles: ["super_admin", "manager", "cashier"] },
     { href: "/customers", label: "Customers", icon: UserCircle, roles: ["super_admin", "manager", "cashier"] },
+    { href: "/inventory", label: "Inventory", icon: Package, roles: ["super_admin", "manager"] },
     { href: "/reports", label: "Reports", icon: FileText, roles: ["super_admin", "manager"] },
     { href: "/staff", label: "Staff", icon: Users, roles: ["super_admin", "manager"] },
     { href: "/settings", label: "Settings", icon: Settings, roles: ["super_admin", "manager"] },

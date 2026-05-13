@@ -14,6 +14,8 @@ import {
   outletsTable,
   paymentsTable,
   customersTable,
+  inventoryItemsTable,
+  menuItemRecipesTable,
   type OrderStatus,
 } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
@@ -483,6 +485,30 @@ router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashi
       const updatedOrder = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
       if (updatedOrder) {
         await db.update(tablesTable).set({ status: "available" }).where(eq(tablesTable.id, updatedOrder.tableId));
+      }
+
+      // Deduct inventory stock based on order items + recipes
+      try {
+        const orderItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+        for (const oi of orderItems) {
+          if (!oi.menuItemId) continue;
+          const recipes = await db.select().from(menuItemRecipesTable)
+            .where(eq(menuItemRecipesTable.menuItemId, oi.menuItemId));
+          for (const recipe of recipes) {
+            const deductQty = parseFloat(recipe.quantity) * oi.quantity;
+            const invItem = await db.query.inventoryItemsTable.findFirst({
+              where: eq(inventoryItemsTable.id, recipe.inventoryItemId),
+            });
+            if (!invItem) continue;
+            const newStock = parseFloat(invItem.currentStock) - deductQty;
+            await db.update(inventoryItemsTable)
+              .set({ currentStock: newStock.toFixed(4) })
+              .where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
+          }
+        }
+      } catch (inventoryErr) {
+        // Non-fatal: log but don't fail the payment
+        console.error("Inventory deduction error:", inventoryErr);
       }
     }
 
