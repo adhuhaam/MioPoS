@@ -7,6 +7,10 @@ import { sessionMiddleware } from "./lib/session";
 
 const app: Express = express();
 
+// Trust the Replit / reverse-proxy layer so that req.secure reflects the
+// real HTTPS connection and express-session sends Secure cookies correctly.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
