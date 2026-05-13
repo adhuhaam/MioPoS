@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, outletsTable } from "@workspace/db";
+import { requireRole } from "../lib/session";
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get("/outlets", async (_req, res) => {
   }
 });
 
-router.post("/outlets", async (req, res) => {
+router.post("/outlets", requireRole("super_admin"), async (req, res) => {
   try {
     const { name, address, phone, taxRate, currency } = req.body;
     const [outlet] = await db.insert(outletsTable).values({
@@ -43,7 +44,7 @@ router.get("/outlets/:id", async (req, res) => {
   }
 });
 
-router.put("/outlets/:id", async (req, res) => {
+router.patch("/outlets/:id", requireRole("super_admin"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, address, phone, taxRate, currency } = req.body;
@@ -62,7 +63,7 @@ router.put("/outlets/:id", async (req, res) => {
   }
 });
 
-router.delete("/outlets/:id", async (req, res) => {
+router.delete("/outlets/:id", requireRole("super_admin"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await db.delete(outletsTable).where(eq(outletsTable.id, id));

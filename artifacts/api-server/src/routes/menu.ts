@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, menuCategoriesTable, menuItemsTable } from "@workspace/db";
+import { requireAuth, requireRole } from "../lib/session";
 
 const router = Router();
 
-router.get("/menu/categories", async (req, res) => {
+router.get("/menu/categories", requireAuth, async (req, res) => {
   try {
     const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const cats = outletId
@@ -17,7 +18,7 @@ router.get("/menu/categories", async (req, res) => {
   }
 });
 
-router.post("/menu/categories", async (req, res) => {
+router.post("/menu/categories", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const { outletId, name, sortOrder } = req.body;
     const [cat] = await db.insert(menuCategoriesTable).values({ outletId, name, sortOrder: sortOrder ?? 0 }).returning();
@@ -28,7 +29,7 @@ router.post("/menu/categories", async (req, res) => {
   }
 });
 
-router.put("/menu/categories/:id", async (req, res) => {
+router.patch("/menu/categories/:id", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, sortOrder } = req.body;
@@ -44,7 +45,7 @@ router.put("/menu/categories/:id", async (req, res) => {
   }
 });
 
-router.delete("/menu/categories/:id", async (req, res) => {
+router.delete("/menu/categories/:id", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await db.delete(menuCategoriesTable).where(eq(menuCategoriesTable.id, id));
@@ -55,14 +56,18 @@ router.delete("/menu/categories/:id", async (req, res) => {
   }
 });
 
-router.get("/menu/items", async (req, res) => {
+router.get("/menu/items", requireAuth, async (req, res) => {
   try {
     const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const categoryId = req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined;
-    let query = db.select().from(menuItemsTable);
-    if (outletId) query = query.where(eq(menuItemsTable.outletId, outletId)) as typeof query;
-    else if (categoryId) query = query.where(eq(menuItemsTable.categoryId, categoryId)) as typeof query;
-    const items = await query.orderBy(menuItemsTable.name);
+    let items;
+    if (outletId) {
+      items = await db.select().from(menuItemsTable).where(eq(menuItemsTable.outletId, outletId)).orderBy(menuItemsTable.name);
+    } else if (categoryId) {
+      items = await db.select().from(menuItemsTable).where(eq(menuItemsTable.categoryId, categoryId)).orderBy(menuItemsTable.name);
+    } else {
+      items = await db.select().from(menuItemsTable).orderBy(menuItemsTable.name);
+    }
     return res.json(items);
   } catch (err) {
     console.error(err);
@@ -70,7 +75,7 @@ router.get("/menu/items", async (req, res) => {
   }
 });
 
-router.post("/menu/items", async (req, res) => {
+router.post("/menu/items", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const { categoryId, outletId, name, description, price, available } = req.body;
     const [item] = await db.insert(menuItemsTable).values({
@@ -88,7 +93,7 @@ router.post("/menu/items", async (req, res) => {
   }
 });
 
-router.put("/menu/items/:id", async (req, res) => {
+router.patch("/menu/items/:id", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { categoryId, name, description, price, available } = req.body;
@@ -107,7 +112,7 @@ router.put("/menu/items/:id", async (req, res) => {
   }
 });
 
-router.delete("/menu/items/:id", async (req, res) => {
+router.delete("/menu/items/:id", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await db.delete(menuItemsTable).where(eq(menuItemsTable.id, id));

@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { eq, and, gte, lte, inArray, sql } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, tablesTable, outletsTable } from "@workspace/db";
+import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { db, ordersTable, orderItemsTable, tablesTable, outletsTable, type OrderStatus } from "@workspace/db";
+import { requireRole } from "../lib/session";
 
 const router = Router();
 
@@ -26,7 +27,7 @@ function getPeriodDates(period: string) {
   }
 }
 
-router.get("/reports/outlet", async (req, res) => {
+router.get("/reports/outlet", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const period = (req.query.period as string) || "today";
@@ -34,10 +35,11 @@ router.get("/reports/outlet", async (req, res) => {
 
     if (!outletId) return res.status(400).json({ error: "outletId is required" });
 
+    const paidStatuses: OrderStatus[] = ["paid"];
     const paidOrders = await db.select().from(ordersTable).where(
       and(
         eq(ordersTable.outletId, outletId),
-        inArray(ordersTable.status, ["paid"]),
+        inArray(ordersTable.status, paidStatuses),
         gte(ordersTable.createdAt, start),
         lte(ordersTable.createdAt, end)
       )
@@ -65,7 +67,7 @@ router.get("/reports/outlet", async (req, res) => {
     const dailyMap: Record<string, number> = {};
     paidOrders.forEach(o => {
       const day = o.createdAt.toISOString().split("T")[0];
-      dailyMap[day] = (dailyMap[day] || 0) + parseFloat(o.total);
+      dailyMap[day] = (dailyMap[day] ?? 0) + parseFloat(o.total);
     });
     const dailyRevenue = Object.entries(dailyMap).sort().map(([date, revenue]) => ({ date, revenue }));
 
@@ -76,19 +78,22 @@ router.get("/reports/outlet", async (req, res) => {
   }
 });
 
-router.get("/reports/consolidated", async (req, res) => {
+router.get("/reports/consolidated", requireRole("super_admin"), async (req, res) => {
   try {
     const period = (req.query.period as string) || "today";
     const { start, end } = getPeriodDates(period);
 
-    const outlets = await db.select().from(outletsTable);
-    const paidOrders = await db.select().from(ordersTable).where(
-      and(
-        inArray(ordersTable.status, ["paid"]),
-        gte(ordersTable.createdAt, start),
-        lte(ordersTable.createdAt, end)
-      )
-    );
+    const paidStatuses: OrderStatus[] = ["paid"];
+    const [outlets, paidOrders] = await Promise.all([
+      db.select().from(outletsTable),
+      db.select().from(ordersTable).where(
+        and(
+          inArray(ordersTable.status, paidStatuses),
+          gte(ordersTable.createdAt, start),
+          lte(ordersTable.createdAt, end)
+        )
+      ),
+    ]);
 
     const totalRevenue = paidOrders.reduce((s, o) => s + parseFloat(o.total), 0);
     const totalOrders = paidOrders.length;
@@ -103,7 +108,7 @@ router.get("/reports/consolidated", async (req, res) => {
     const dailyMap: Record<string, number> = {};
     paidOrders.forEach(o => {
       const day = o.createdAt.toISOString().split("T")[0];
-      dailyMap[day] = (dailyMap[day] || 0) + parseFloat(o.total);
+      dailyMap[day] = (dailyMap[day] ?? 0) + parseFloat(o.total);
     });
     const dailyRevenue = Object.entries(dailyMap).sort().map(([date, revenue]) => ({ date, revenue }));
 
@@ -114,7 +119,7 @@ router.get("/reports/consolidated", async (req, res) => {
   }
 });
 
-router.get("/reports/dashboard", async (req, res) => {
+router.get("/reports/dashboard", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const today = new Date();
@@ -122,22 +127,23 @@ router.get("/reports/dashboard", async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    const paidStatuses: OrderStatus[] = ["paid"];
+    const openStatuses: OrderStatus[] = ["open", "billed"];
+
     const todayConditions = outletId
-      ? and(eq(ordersTable.outletId, outletId), inArray(ordersTable.status, ["paid"]), gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, tomorrow))
-      : and(inArray(ordersTable.status, ["paid"]), gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, tomorrow));
+      ? and(eq(ordersTable.outletId, outletId), inArray(ordersTable.status, paidStatuses), gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, tomorrow))
+      : and(inArray(ordersTable.status, paidStatuses), gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, tomorrow));
 
     const openConditions = outletId
-      ? and(eq(ordersTable.outletId, outletId), inArray(ordersTable.status, ["open", "billed"]))
-      : inArray(ordersTable.status, ["open", "billed"]);
-
-    const tableConditions = outletId
-      ? eq(tablesTable.outletId, outletId)
-      : undefined;
+      ? and(eq(ordersTable.outletId, outletId), inArray(ordersTable.status, openStatuses))
+      : inArray(ordersTable.status, openStatuses);
 
     const [todayOrders, openOrders, tables] = await Promise.all([
       db.select().from(ordersTable).where(todayConditions),
       db.select().from(ordersTable).where(openConditions),
-      tableConditions ? db.select().from(tablesTable).where(tableConditions) : db.select().from(tablesTable),
+      outletId
+        ? db.select().from(tablesTable).where(eq(tablesTable.outletId, outletId))
+        : db.select().from(tablesTable),
     ]);
 
     const todayRevenue = todayOrders.reduce((s, o) => s + parseFloat(o.total), 0);

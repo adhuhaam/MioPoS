@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, tablesTable } from "@workspace/db";
+import { requireAuth, requireRole } from "../lib/session";
 
 const router = Router();
 
-router.get("/tables", async (req, res) => {
+router.get("/tables", requireAuth, async (req, res) => {
   try {
     const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const tables = outletId
@@ -17,7 +18,7 @@ router.get("/tables", async (req, res) => {
   }
 });
 
-router.post("/tables", async (req, res) => {
+router.post("/tables", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const { outletId, name, capacity, status } = req.body;
     const [table] = await db.insert(tablesTable).values({
@@ -33,7 +34,7 @@ router.post("/tables", async (req, res) => {
   }
 });
 
-router.put("/tables/:id", async (req, res) => {
+router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, capacity, status } = req.body;
@@ -50,7 +51,7 @@ router.put("/tables/:id", async (req, res) => {
   }
 });
 
-router.delete("/tables/:id", async (req, res) => {
+router.delete("/tables/:id", requireRole("super_admin", "manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await db.delete(tablesTable).where(eq(tablesTable.id, id));

@@ -1,28 +1,43 @@
 import { Router } from "express";
-import { eq, and, desc } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, tablesTable, menuItemsTable, outletsTable } from "@workspace/db";
+import { eq, and, desc, inArray, SQL } from "drizzle-orm";
+import {
+  db,
+  ordersTable,
+  orderItemsTable,
+  tablesTable,
+  menuItemsTable,
+  outletsTable,
+  paymentsTable,
+  type OrderStatus,
+} from "@workspace/db";
+import { requireAuth, requireRole } from "../lib/session";
 
 const router = Router();
 
-function recalcOrder(items: { unitPrice: string; quantity: number }[], taxRate: number, discountPercent?: number | null) {
+function recalcOrder(
+  items: Array<{ unitPrice: string; quantity: number }>,
+  taxRate: number,
+  discountPercent?: string | null
+) {
   const subtotal = items.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
-  const discountAmount = discountPercent ? subtotal * (discountPercent / 100) : 0;
+  const dp = discountPercent ? parseFloat(discountPercent) : 0;
+  const discountAmount = subtotal * (dp / 100);
   const taxable = subtotal - discountAmount;
   const taxAmount = taxable * (taxRate / 100);
   const total = taxable + taxAmount;
   return { subtotal, discountAmount, taxAmount, total };
 }
 
-router.get("/orders", async (req, res) => {
+router.get("/orders", requireAuth, async (req, res) => {
   try {
     const outletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const status = req.query.status as string | undefined;
     const tableId = req.query.tableId ? parseInt(req.query.tableId as string) : undefined;
 
-    let conditions: ReturnType<typeof and>[] = [];
-    if (outletId) conditions.push(eq(ordersTable.outletId, outletId) as any);
-    if (status) conditions.push(eq(ordersTable.status, status as any) as any);
-    if (tableId) conditions.push(eq(ordersTable.tableId, tableId) as any);
+    const conditions: SQL[] = [];
+    if (outletId) conditions.push(eq(ordersTable.outletId, outletId));
+    if (status) conditions.push(eq(ordersTable.status, status as OrderStatus));
+    if (tableId) conditions.push(eq(ordersTable.tableId, tableId));
 
     const ordersRaw = conditions.length
       ? await db.select().from(ordersTable).where(and(...conditions)).orderBy(desc(ordersTable.createdAt))
@@ -41,7 +56,7 @@ router.get("/orders", async (req, res) => {
   }
 });
 
-router.post("/orders", async (req, res) => {
+router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const { outletId, tableId, staffId, notes } = req.body;
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
@@ -50,8 +65,8 @@ router.post("/orders", async (req, res) => {
     const [order] = await db.insert(ordersTable).values({
       outletId,
       tableId,
-      staffId: staffId || null,
-      notes: notes || null,
+      staffId: staffId ?? null,
+      notes: notes ?? null,
       status: "open",
     }).returning();
 
@@ -64,7 +79,7 @@ router.post("/orders", async (req, res) => {
   }
 });
 
-router.get("/orders/:id", async (req, res) => {
+router.get("/orders/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, id) });
@@ -78,33 +93,34 @@ router.get("/orders/:id", async (req, res) => {
   }
 });
 
-router.put("/orders/:id", async (req, res) => {
+router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { status, notes, discountPercent } = req.body;
-    const updates: Record<string, unknown> = {};
 
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, id) });
     if (!order) return res.status(404).json({ error: "Not found" });
 
+    const updates: Record<string, unknown> = {};
     if (status !== undefined) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
 
     if (discountPercent !== undefined) {
-      updates.discountPercent = discountPercent?.toString() ?? null;
+      updates.discountPercent = discountPercent !== null ? discountPercent.toString() : null;
       const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
       const taxRate = parseFloat(outlet?.taxRate ?? "0");
       const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
-      const calc = recalcOrder(items, taxRate, discountPercent);
+      const calc = recalcOrder(items, taxRate, discountPercent?.toString());
       updates.subtotal = calc.subtotal.toFixed(2);
       updates.discountAmount = calc.discountAmount.toFixed(2);
       updates.taxAmount = calc.taxAmount.toFixed(2);
       updates.total = calc.total.toFixed(2);
     }
 
-    if (status === "paid" || status === "cancelled") {
+    const newStatus = status as OrderStatus | undefined;
+    if (newStatus === "paid" || newStatus === "cancelled") {
       await db.update(tablesTable).set({ status: "available" }).where(eq(tablesTable.id, order.tableId));
-    } else if (status === "billed") {
+    } else if (newStatus === "billed") {
       await db.update(tablesTable).set({ status: "bill_requested" }).where(eq(tablesTable.id, order.tableId));
     }
 
@@ -118,7 +134,7 @@ router.put("/orders/:id", async (req, res) => {
   }
 });
 
-router.post("/orders/:id/items", async (req, res) => {
+router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { menuItemId, quantity, notes } = req.body;
@@ -140,15 +156,14 @@ router.post("/orders/:id/items", async (req, res) => {
       quantity: qty,
       unitPrice: unitPrice.toFixed(2),
       total: total.toFixed(2),
-      notes: notes || null,
+      notes: notes ?? null,
       kitchenStatus: "pending",
     }).returning();
 
     const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
     const taxRate = parseFloat(outlet?.taxRate ?? "0");
-    const discountPercent = order.discountPercent ? parseFloat(order.discountPercent) : 0;
-    const calc = recalcOrder(allItems, taxRate, discountPercent);
+    const calc = recalcOrder(allItems, taxRate, order.discountPercent);
 
     await db.update(ordersTable).set({
       subtotal: calc.subtotal.toFixed(2),
@@ -164,7 +179,7 @@ router.post("/orders/:id/items", async (req, res) => {
   }
 });
 
-router.put("/orders/:id/items/:itemId", async (req, res) => {
+router.patch("/orders/:id/items/:itemId", requireAuth, async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const itemId = parseInt(req.params.itemId);
@@ -188,8 +203,7 @@ router.put("/orders/:id/items/:itemId", async (req, res) => {
       const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
       const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
       const taxRate = parseFloat(outlet?.taxRate ?? "0");
-      const discountPercent = order.discountPercent ? parseFloat(order.discountPercent) : 0;
-      const calc = recalcOrder(allItems, taxRate, discountPercent);
+      const calc = recalcOrder(allItems, taxRate, order.discountPercent);
       await db.update(ordersTable).set({
         subtotal: calc.subtotal.toFixed(2),
         discountAmount: calc.discountAmount.toFixed(2),
@@ -205,7 +219,7 @@ router.put("/orders/:id/items/:itemId", async (req, res) => {
   }
 });
 
-router.delete("/orders/:id/items/:itemId", async (req, res) => {
+router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const itemId = parseInt(req.params.itemId);
@@ -217,8 +231,7 @@ router.delete("/orders/:id/items/:itemId", async (req, res) => {
       const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
       const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
       const taxRate = parseFloat(outlet?.taxRate ?? "0");
-      const discountPercent = order.discountPercent ? parseFloat(order.discountPercent) : 0;
-      const calc = recalcOrder(allItems, taxRate, discountPercent);
+      const calc = recalcOrder(allItems, taxRate, order.discountPercent);
       await db.update(ordersTable).set({
         subtotal: calc.subtotal.toFixed(2),
         discountAmount: calc.discountAmount.toFixed(2),
@@ -234,11 +247,10 @@ router.delete("/orders/:id/items/:itemId", async (req, res) => {
   }
 });
 
-router.post("/orders/:id/payments", async (req, res) => {
+router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashier"), async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { method, amount } = req.body;
-    const { paymentsTable } = await import("@workspace/db");
 
     const [payment] = await db.insert(paymentsTable).values({
       orderId,
