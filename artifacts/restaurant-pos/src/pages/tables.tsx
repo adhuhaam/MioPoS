@@ -436,14 +436,17 @@ interface TableCardProps {
 function TableCard({ table, area, onClick, onEdit, onDelete }: TableCardProps) {
   const isOccupied = table.status === "occupied" || table.status === "bill_requested";
   const isTimedArea = area?.type === "timed";
-  const elapsedMins = useElapsedMinutes(isOccupied && isTimedArea ? (table as any).currentOrderOpenedAt : null);
+  const openedAt = (table as any).tableOpenedAt as string | null;
+  const elapsedMins = useElapsedMinutes(isOccupied && isTimedArea ? openedAt : null);
 
   return (
     <div data-testid={`card-table-${table.id}`}
       className={`border-2 rounded-xl p-4 transition-all ${STATUS_STYLE[table.status]} ${table.status === "available" ? "cursor-pointer" : "cursor-default"}`}
       onClick={onClick}>
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-2.5 h-2.5 rounded-full mt-0.5 ${STATUS_DOT[table.status]}`} />
+
+      {/* Top row: status dot + edit/delete */}
+      <div className="flex items-center justify-between mb-2">
+        <div className={`w-2.5 h-2.5 rounded-full ${STATUS_DOT[table.status]}`} />
         <div className="flex gap-0.5">
           <button onClick={e => { e.stopPropagation(); onEdit(); }} data-testid={`button-edit-table-${table.id}`}
             className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"><Pencil className="w-3 h-3" /></button>
@@ -452,26 +455,30 @@ function TableCard({ table, area, onClick, onEdit, onDelete }: TableCardProps) {
         </div>
       </div>
 
-      <p className="font-bold text-lg leading-none">{table.name}</p>
-
-      {area && (
-        <div className="flex items-center gap-1 mt-2">
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: area.color }} />
-          <span className="text-xs text-muted-foreground">{area.name}</span>
-        </div>
-      )}
-
-      <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
-        <Users className="w-3 h-3" />{table.capacity} seats
+      {/* Name + timer on the same row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="font-bold text-lg leading-none">{table.name}</p>
+        {isTimedArea && isOccupied && (
+          <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+            <Timer className="w-2.5 h-2.5" />
+            {elapsedMins > 0 ? formatDuration(elapsedMins) : "0m"}
+          </span>
+        )}
       </div>
 
-      {isTimedArea && isOccupied && (
-        <div className="flex items-center gap-1 mt-1.5 text-xs text-indigo-600 dark:text-indigo-400">
-          <Timer className="w-3 h-3" />
-          {elapsedMins > 0 ? formatDuration(elapsedMins) : "Just opened"}
-          {area.hourlyRate && <span className="text-muted-foreground ml-1">· ${Number(area.hourlyRate).toFixed(2)}/hr</span>}
+      {area && (
+        <div className="flex items-center gap-1 mt-1.5">
+          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: area.color }} />
+          <span className="text-xs text-muted-foreground">{area.name}</span>
+          {isTimedArea && area.hourlyRate && (
+            <span className="text-xs text-muted-foreground">· ${Number(area.hourlyRate).toFixed(0)}/hr</span>
+          )}
         </div>
       )}
+
+      <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+        <Users className="w-3 h-3" />{table.capacity} seats
+      </div>
 
       <p className="text-xs mt-1 capitalize text-muted-foreground">{table.status.replace("_", " ")}</p>
     </div>

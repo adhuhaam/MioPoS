@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
-import { db, tablesTable, areasTable } from "@workspace/db";
+import { eq, and, or } from "drizzle-orm";
+import { db, tablesTable, areasTable, ordersTable } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 
 const router = Router();
@@ -12,9 +12,28 @@ function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
 }
 
 async function tableWithArea(table: typeof tablesTable.$inferSelect) {
-  if (!table.areaId) return { ...table, area: null };
-  const area = await db.query.areasTable.findFirst({ where: eq(areasTable.id, table.areaId) });
-  return { ...table, area: area ?? null };
+  const area = table.areaId
+    ? await db.query.areasTable.findFirst({ where: eq(areasTable.id, table.areaId) })
+    : null;
+
+  // For occupied/billed timed-area tables, pull the active order's tableOpenedAt
+  let tableOpenedAt: string | null = null;
+  if (
+    area?.type === "timed" &&
+    (table.status === "occupied" || table.status === "bill_requested")
+  ) {
+    const activeOrder = await db.query.ordersTable.findFirst({
+      where: and(
+        eq(ordersTable.tableId, table.id),
+        or(eq(ordersTable.status, "open"), eq(ordersTable.status, "billed"))
+      ),
+    });
+    tableOpenedAt = activeOrder?.tableOpenedAt
+      ? activeOrder.tableOpenedAt.toISOString()
+      : null;
+  }
+
+  return { ...table, area: area ?? null, tableOpenedAt };
 }
 
 router.get("/tables", requireAuth, async (req: Request, res: Response) => {

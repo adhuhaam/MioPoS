@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -60,10 +60,26 @@ const FILTER_LABELS: Record<FilterKey, string> = {
   bill_requested: "Bill",
 };
 
-function TableCard({ table, onPress }: { table: Table; onPress: () => void }) {
+function formatElapsed(ms: number): string {
+  const totalMins = Math.floor(ms / 60000);
+  if (totalMins < 60) return `${totalMins}m`;
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function TableCard({ table, now, onPress }: { table: Table; now: number; onPress: () => void }) {
   const colors = useColors();
   const cfg =
     STATUS_CONFIG[table.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.available;
+
+  const t = table as any;
+  const area = t.area as { name: string; type: string; color?: string; hourlyRate?: string | null } | null;
+  const isOccupied = table.status === "occupied" || table.status === "bill_requested";
+  const isTimedArea = area?.type === "timed";
+  const tableOpenedAt: string | null = isOccupied && isTimedArea ? (t.tableOpenedAt ?? null) : null;
+  const elapsedMs = tableOpenedAt ? now - new Date(tableOpenedAt).getTime() : 0;
+  const showTimer = tableOpenedAt && elapsedMs >= 0;
 
   return (
     <Pressable
@@ -82,9 +98,31 @@ function TableCard({ table, onPress }: { table: Table; onPress: () => void }) {
       <View style={[styles.cardStrip, { backgroundColor: cfg.dot }]} />
 
       <View style={styles.cardBody}>
-        <Text style={[styles.cardName, { color: colors.foreground }]} numberOfLines={1}>
-          {table.name}
-        </Text>
+        {/* Name + timer badge on the same row */}
+        <View style={styles.nameRow}>
+          <Text style={[styles.cardName, { color: colors.foreground, flexShrink: 1 }]} numberOfLines={1}>
+            {table.name}
+          </Text>
+          {showTimer && (
+            <View style={styles.timerBadge}>
+              <Feather name="clock" size={9} color="#6366f1" />
+              <Text style={styles.timerText}>{formatElapsed(elapsedMs)}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Area row */}
+        {area && (
+          <View style={styles.areaRow}>
+            <View style={[styles.areaDot, { backgroundColor: area.color ?? "#6366f1" }]} />
+            <Text style={[styles.areaText, { color: colors.mutedForeground }]} numberOfLines={1}>
+              {area.name}
+              {isTimedArea && area.hourlyRate
+                ? ` · $${Number(area.hourlyRate).toFixed(0)}/hr`
+                : ""}
+            </Text>
+          </View>
+        )}
 
         <View style={[styles.cardBadge, { backgroundColor: `${cfg.dot}22` }]}>
           <View style={[styles.badgeDot, { backgroundColor: cfg.dot }]} />
@@ -112,6 +150,11 @@ export default function TablesScreen() {
 
   const [filter, setFilter] = useState<FilterKey>("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const { data: tables, isLoading, refetch } = useListTables(
     { outletId: outlet?.id ?? 0 },
@@ -155,9 +198,9 @@ export default function TablesScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: Table }) => (
-      <TableCard table={item} onPress={() => handleTablePress(item)} />
+      <TableCard table={item} now={now} onPress={() => handleTablePress(item)} />
     ),
-    [handleTablePress]
+    [handleTablePress, now]
   );
 
   if (!outlet) {
@@ -388,8 +431,22 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   cardStrip: { height: 5 },
-  cardBody: { padding: 12, gap: 8 },
+  cardBody: { padding: 12, gap: 6 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   cardName: { fontSize: 16, fontWeight: "800" },
+  timerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#eef2ff",
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  timerText: { fontSize: 10, fontWeight: "700", color: "#6366f1" },
+  areaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  areaDot: { width: 7, height: 7, borderRadius: 4 },
+  areaText: { fontSize: 11 },
   cardBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",
