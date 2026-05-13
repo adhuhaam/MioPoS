@@ -11,6 +11,6 @@ export type PaymentInputMethod =
 
 export const PaymentInputMethod = {
   cash: "cash",
-  card: "card",
-  split: "split",
+  bank_transfer: "bank_transfer",
+  credit: "credit",
 } as const;

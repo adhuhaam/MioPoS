@@ -12,6 +12,7 @@ import {
   modifierGroupsTable,
   outletsTable,
   paymentsTable,
+  customersTable,
   type OrderStatus,
 } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
@@ -397,7 +398,12 @@ router.get("/orders/:id/payments", requireRole("super_admin", "manager", "cashie
 router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
-    const { method, amount } = req.body as { method: "cash" | "card" | "split"; amount: number };
+    const { method, amount, customerId, slipImagePath } = req.body as {
+      method: "cash" | "bank_transfer" | "credit";
+      amount: number;
+      customerId?: number;
+      slipImagePath?: string;
+    };
 
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
     if (!order) return res.status(404).json({ error: "Order not found" });
@@ -408,10 +414,27 @@ router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashi
       return res.status(409).json({ error: "Order is already paid" });
     }
 
+    if (method === "credit") {
+      if (!customerId) return res.status(400).json({ error: "customerId is required for credit payments" });
+      const customer = await db.query.customersTable.findFirst({ where: eq(customersTable.id, customerId) });
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      const balance = parseFloat(customer.creditBalance);
+      if (balance < amount) return res.status(400).json({ error: "Insufficient credit balance" });
+      await db.update(customersTable)
+        .set({ creditBalance: (balance - amount).toFixed(2) })
+        .where(eq(customersTable.id, customerId));
+    }
+
+    if (method === "bank_transfer" && !slipImagePath) {
+      return res.status(400).json({ error: "slipImagePath is required for bank transfer payments" });
+    }
+
     const [payment] = await db.insert(paymentsTable).values({
       orderId,
       method,
       amount: amount.toString(),
+      customerId: customerId ?? null,
+      slipImagePath: slipImagePath ?? null,
     }).returning();
 
     const [{ totalPaid }] = await db

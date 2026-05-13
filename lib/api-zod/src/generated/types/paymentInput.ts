@@ -10,4 +10,6 @@ import type { PaymentInputMethod } from "./paymentInputMethod";
 export interface PaymentInput {
   method: PaymentInputMethod;
   amount: number;
+  customerId?: number;
+  slipImagePath?: string;
 }

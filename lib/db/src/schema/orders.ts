@@ -12,7 +12,7 @@ export type OrderStatus = typeof orderStatusEnum[number];
 export const kitchenStatusEnum = ["pending", "preparing", "ready", "served"] as const;
 export type KitchenStatus = typeof kitchenStatusEnum[number];
 
-export const paymentMethodEnum = ["cash", "card", "split"] as const;
+export const paymentMethodEnum = ["cash", "bank_transfer", "credit"] as const;
 export type PaymentMethod = typeof paymentMethodEnum[number];
 
 export const ordersTable = pgTable("orders", {
@@ -47,8 +47,10 @@ export const orderItemsTable = pgTable("order_items", {
 export const paymentsTable = pgTable("payments", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id").notNull().references(() => ordersTable.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id"),
   method: text("method").$type<PaymentMethod>().notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  slipImagePath: text("slip_image_path"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

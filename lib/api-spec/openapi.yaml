@@ -24,8 +24,12 @@ tags:
     description: Order management
   - name: payments
     description: Payment processing
+  - name: customers
+    description: Customer management
   - name: reports
     description: Reporting and analytics
+  - name: storage
+    description: Object storage upload and serving endpoints
 paths:
   /healthz:
     get:
@@ -1015,6 +1019,163 @@ paths:
               schema:
                 $ref: "#/components/schemas/Payment"
 
+  # ── Customers ─────────────────────────────────────────────────────────────
+  /customers:
+    get:
+      operationId: listCustomers
+      tags: [customers]
+      summary: List customers
+      parameters:
+        - name: outletId
+          in: query
+          schema:
+            type: integer
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Customer"
+    post:
+      operationId: createCustomer
+      tags: [customers]
+      summary: Register a new customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerInput"
+      responses:
+        "201":
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+
+  /customers/{id}:
+    get:
+      operationId: getCustomer
+      tags: [customers]
+      summary: Get customer by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+    patch:
+      operationId: updateCustomer
+      tags: [customers]
+      summary: Update customer details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerUpdate"
+      responses:
+        "200":
+          description: Customer updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+    delete:
+      operationId: deleteCustomer
+      tags: [customers]
+      summary: Delete a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Customer deleted
+
+  /customers/{id}/credit:
+    post:
+      operationId: adjustCustomerCredit
+      tags: [customers]
+      summary: Add or deduct credit balance for a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditAdjustment"
+      responses:
+        "200":
+          description: Customer with updated credit balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+
+  # ── Storage ────────────────────────────────────────────────────────────────
+  /storage/uploads/request-url:
+    post:
+      tags: [storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Presigned upload URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+
+  /storage/objects/{objectPath}:
+    get:
+      tags: [storage]
+      operationId: getStorageObject
+      summary: Serve an uploaded object
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object content streamed
+
   # ── Reports ───────────────────────────────────────────────────────────────
   /reports/outlet:
     get:
@@ -1634,11 +1795,15 @@ components:
           type: integer
         orderId:
           type: integer
+        customerId:
+          type: integer
         method:
           type: string
-          enum: [cash, card, split]
+          enum: [cash, bank_transfer, credit]
         amount:
           type: number
+        slipImagePath:
+          type: string
         createdAt:
           type: string
 
@@ -1648,9 +1813,95 @@ components:
       properties:
         method:
           type: string
-          enum: [cash, card, split]
+          enum: [cash, bank_transfer, credit]
         amount:
           type: number
+        customerId:
+          type: integer
+        slipImagePath:
+          type: string
+
+    # ── Customer schemas ──────────────────────────────────────────────────
+    Customer:
+      type: object
+      required: [id, name, creditBalance, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        outletId:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        creditBalance:
+          type: number
+        notes:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CustomerInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        notes:
+          type: string
+        outletId:
+          type: integer
+
+    CustomerUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        notes:
+          type: string
+
+    CreditAdjustment:
+      type: object
+      required: [amount, operation]
+      properties:
+        amount:
+          type: number
+        operation:
+          type: string
+          enum: [add, deduct]
+
+    # ── Storage schemas ───────────────────────────────────────────────────
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+        contentType:
+          type: string
+
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+        objectPath:
+          type: string
 
     # ── Report schemas ────────────────────────────────────────────────────
     OutletReport:

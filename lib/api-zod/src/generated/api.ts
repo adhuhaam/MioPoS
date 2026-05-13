@@ -635,8 +635,10 @@ export const GetOrderResponse = zod.object({
     zod.object({
       id: zod.number(),
       orderId: zod.number(),
-      method: zod.enum(["cash", "card", "split"]),
+      customerId: zod.number().optional(),
+      method: zod.enum(["cash", "bank_transfer", "credit"]),
       amount: zod.number(),
+      slipImagePath: zod.string().optional(),
       createdAt: zod.string(),
     }),
   ),
@@ -803,8 +805,10 @@ export const ListOrderPaymentsParams = zod.object({
 export const ListOrderPaymentsResponseItem = zod.object({
   id: zod.number(),
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "split"]),
+  customerId: zod.number().optional(),
+  method: zod.enum(["cash", "bank_transfer", "credit"]),
   amount: zod.number(),
+  slipImagePath: zod.string().optional(),
   createdAt: zod.string(),
 });
 export const ListOrderPaymentsResponse = zod.array(
@@ -819,8 +823,139 @@ export const RecordPaymentParams = zod.object({
 });
 
 export const RecordPaymentBody = zod.object({
-  method: zod.enum(["cash", "card", "split"]),
+  method: zod.enum(["cash", "bank_transfer", "credit"]),
   amount: zod.number(),
+  customerId: zod.number().optional(),
+  slipImagePath: zod.string().optional(),
+});
+
+/**
+ * @summary List customers
+ */
+export const ListCustomersQueryParams = zod.object({
+  outletId: zod.coerce.number().optional(),
+  search: zod.coerce.string().optional(),
+});
+
+export const ListCustomersResponseItem = zod.object({
+  id: zod.number(),
+  outletId: zod.number().optional(),
+  name: zod.string(),
+  phone: zod.string().optional(),
+  email: zod.string().optional(),
+  creditBalance: zod.number(),
+  notes: zod.string().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListCustomersResponse = zod.array(ListCustomersResponseItem);
+
+/**
+ * @summary Register a new customer
+ */
+export const CreateCustomerBody = zod.object({
+  name: zod.string(),
+  phone: zod.string().optional(),
+  email: zod.string().optional(),
+  notes: zod.string().optional(),
+  outletId: zod.number().optional(),
+});
+
+/**
+ * @summary Get customer by ID
+ */
+export const GetCustomerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetCustomerResponse = zod.object({
+  id: zod.number(),
+  outletId: zod.number().optional(),
+  name: zod.string(),
+  phone: zod.string().optional(),
+  email: zod.string().optional(),
+  creditBalance: zod.number(),
+  notes: zod.string().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Update customer details
+ */
+export const UpdateCustomerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateCustomerBody = zod.object({
+  name: zod.string().optional(),
+  phone: zod.string().optional(),
+  email: zod.string().optional(),
+  notes: zod.string().optional(),
+});
+
+export const UpdateCustomerResponse = zod.object({
+  id: zod.number(),
+  outletId: zod.number().optional(),
+  name: zod.string(),
+  phone: zod.string().optional(),
+  email: zod.string().optional(),
+  creditBalance: zod.number(),
+  notes: zod.string().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Delete a customer
+ */
+export const DeleteCustomerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary Add or deduct credit balance for a customer
+ */
+export const AdjustCustomerCreditParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AdjustCustomerCreditBody = zod.object({
+  amount: zod.number(),
+  operation: zod.enum(["add", "deduct"]),
+});
+
+export const AdjustCustomerCreditResponse = zod.object({
+  id: zod.number(),
+  outletId: zod.number().optional(),
+  name: zod.string(),
+  phone: zod.string().optional(),
+  email: zod.string().optional(),
+  creditBalance: zod.number(),
+  notes: zod.string().optional(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+export const RequestUploadUrlBody = zod.object({
+  name: zod.string(),
+  size: zod.number(),
+  contentType: zod.string(),
+});
+
+export const RequestUploadUrlResponse = zod.object({
+  uploadURL: zod.string(),
+  objectPath: zod.string(),
+});
+
+/**
+ * @summary Serve an uploaded object
+ */
+export const GetStorageObjectParams = zod.object({
+  objectPath: zod.coerce.string(),
 });
 
 /**

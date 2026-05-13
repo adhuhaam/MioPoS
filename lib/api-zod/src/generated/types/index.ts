@@ -8,6 +8,11 @@
 
 export * from "./authResult";
 export * from "./consolidatedReport";
+export * from "./creditAdjustment";
+export * from "./creditAdjustmentOperation";
+export * from "./customer";
+export * from "./customerInput";
+export * from "./customerUpdate";
 export * from "./dailyRevenue";
 export * from "./dashboardStats";
 export * from "./getConsolidatedReportParams";
@@ -21,6 +26,7 @@ export * from "./itemModifierGroupInput";
 export * from "./kitchenOrder";
 export * from "./kitchenOrderStatus";
 export * from "./listCategoriesParams";
+export * from "./listCustomersParams";
 export * from "./listKitchenOrdersParams";
 export * from "./listMenuItemsParams";
 export * from "./listModifierGroupsParams";
@@ -79,3 +85,5 @@ export * from "./tableStatus";
 export * from "./tableUpdate";
 export * from "./tableUpdateStatus";
 export * from "./topItem";
+export * from "./uploadUrlRequest";
+export * from "./uploadUrlResponse";

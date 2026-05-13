@@ -319,15 +319,17 @@ export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
 
 export const PaymentMethod = {
   cash: "cash",
-  card: "card",
-  split: "split",
+  bank_transfer: "bank_transfer",
+  credit: "credit",
 } as const;
 
 export interface Payment {
   id: number;
   orderId: number;
+  customerId?: number;
   method: PaymentMethod;
   amount: number;
+  slipImagePath?: string;
   createdAt: string;
 }
 
@@ -427,13 +429,66 @@ export type PaymentInputMethod =
 
 export const PaymentInputMethod = {
   cash: "cash",
-  card: "card",
-  split: "split",
+  bank_transfer: "bank_transfer",
+  credit: "credit",
 } as const;
 
 export interface PaymentInput {
   method: PaymentInputMethod;
   amount: number;
+  customerId?: number;
+  slipImagePath?: string;
+}
+
+export interface Customer {
+  id: number;
+  outletId?: number;
+  name: string;
+  phone?: string;
+  email?: string;
+  creditBalance: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerInput {
+  name: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  outletId?: number;
+}
+
+export interface CustomerUpdate {
+  name?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+}
+
+export type CreditAdjustmentOperation =
+  (typeof CreditAdjustmentOperation)[keyof typeof CreditAdjustmentOperation];
+
+export const CreditAdjustmentOperation = {
+  add: "add",
+  deduct: "deduct",
+} as const;
+
+export interface CreditAdjustment {
+  amount: number;
+  operation: CreditAdjustmentOperation;
+}
+
+export interface UploadUrlRequest {
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+export interface UploadUrlResponse {
+  uploadURL: string;
+  objectPath: string;
 }
 
 export interface TopItem {
@@ -532,6 +587,11 @@ export type ListKitchenOrdersParams = {
 
 export type StreamKitchenOrdersParams = {
   outletId: number;
+};
+
+export type ListCustomersParams = {
+  outletId?: number;
+  search?: string;
 };
 
 export type GetOutletReportParams = {

@@ -10,6 +10,6 @@ export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
 
 export const PaymentMethod = {
   cash: "cash",
-  card: "card",
-  split: "split",
+  bank_transfer: "bank_transfer",
+  credit: "credit",
 } as const;

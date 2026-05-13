@@ -17,6 +17,7 @@ import Orders from "./pages/orders";
 import Reports from "./pages/reports";
 import Staff from "./pages/staff";
 import Settings from "./pages/settings";
+import Customers from "./pages/customers";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -53,6 +54,7 @@ function Router() {
         {(role === "super_admin" || role === "manager") && <Route path="/reports" component={Reports} />}
         {(role === "super_admin" || role === "manager") && <Route path="/staff" component={Staff} />}
         {(role === "super_admin" || role === "manager") && <Route path="/settings" component={Settings} />}
+        {(role === "super_admin" || role === "manager" || role === "cashier") && <Route path="/customers" component={Customers} />}
         <Route component={NotFound} />
       </Switch>
     </SidebarLayout>

@@ -9,6 +9,8 @@ import tablesRouter from "./tables";
 import ordersRouter from "./orders";
 import kitchenRouter from "./kitchen";
 import reportsRouter from "./reports";
+import customersRouter from "./customers";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
@@ -22,5 +24,7 @@ router.use(tablesRouter);
 router.use(ordersRouter);
 router.use(kitchenRouter);
 router.use(reportsRouter);
+router.use(customersRouter);
+router.use(storageRouter);
 
 export default router;
