@@ -6,6 +6,11 @@ import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 
 const router = Router();
 
+function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
+  if (req.session.role === "super_admin") return true;
+  return req.session.outletId === resourceOutletId;
+}
+
 router.get("/menu/categories", requireAuth, async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
@@ -24,6 +29,11 @@ router.get("/menu/categories", requireAuth, async (req: Request, res: Response) 
 router.post("/menu/categories", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const { outletId, name, sortOrder } = req.body as { outletId: number; name: string; sortOrder?: number };
+
+    if (!assertOutletAccess(req, outletId)) {
+      return res.status(403).json({ error: "Forbidden: cannot create category for another outlet" });
+    }
+
     const [cat] = await db.insert(menuCategoriesTable).values({ outletId, name, sortOrder: sortOrder ?? 0 }).returning();
     return res.status(201).json(cat);
   } catch (err) {
@@ -36,6 +46,13 @@ router.patch("/menu/categories/:id", requireRole("super_admin", "manager"), asyn
   try {
     const id = parseInt(req.params.id as string);
     const { name, sortOrder } = req.body as { name?: string; sortOrder?: number };
+
+    const existing = await db.query.menuCategoriesTable.findFirst({ where: eq(menuCategoriesTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (sortOrder !== undefined) updates.sortOrder = sortOrder;
@@ -51,6 +68,11 @@ router.patch("/menu/categories/:id", requireRole("super_admin", "manager"), asyn
 router.delete("/menu/categories/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
+    const existing = await db.query.menuCategoriesTable.findFirst({ where: eq(menuCategoriesTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     await db.delete(menuCategoriesTable).where(eq(menuCategoriesTable.id, id));
     return res.status(204).send();
   } catch (err) {
@@ -90,6 +112,11 @@ router.post("/menu/items", requireRole("super_admin", "manager"), async (req: Re
       price: number;
       available?: boolean;
     };
+
+    if (!assertOutletAccess(req, outletId)) {
+      return res.status(403).json({ error: "Forbidden: cannot create item for another outlet" });
+    }
+
     const [item] = await db.insert(menuItemsTable).values({
       categoryId,
       outletId,
@@ -115,6 +142,13 @@ router.patch("/menu/items/:id", requireRole("super_admin", "manager"), async (re
       price?: number;
       available?: boolean;
     };
+
+    const existing = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
     const updates: Record<string, unknown> = {};
     if (categoryId !== undefined) updates.categoryId = categoryId;
     if (name !== undefined) updates.name = name;
@@ -133,6 +167,11 @@ router.patch("/menu/items/:id", requireRole("super_admin", "manager"), async (re
 router.delete("/menu/items/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
+    const existing = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     await db.delete(menuItemsTable).where(eq(menuItemsTable.id, id));
     return res.status(204).send();
   } catch (err) {

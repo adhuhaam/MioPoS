@@ -1,11 +1,12 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, sum } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
   db,
   ordersTable,
   orderItemsTable,
+  orderItemModifiersTable,
   tablesTable,
   menuItemsTable,
   outletsTable,
@@ -28,6 +29,19 @@ function recalcOrder(
   const taxAmount = taxable * (taxRate / 100);
   const total = taxable + taxAmount;
   return { subtotal, discountAmount, taxAmount, total };
+}
+
+function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
+  if (req.session.role === "super_admin") return true;
+  return req.session.outletId === resourceOutletId;
+}
+
+async function itemsWithModifiers(orderId: number) {
+  const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+  return Promise.all(items.map(async (item) => {
+    const modifiers = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, item.id));
+    return { ...item, modifiers };
+  }));
 }
 
 router.get("/orders", requireAuth, async (req: Request, res: Response) => {
@@ -67,6 +81,11 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
       staffId?: number;
       notes?: string;
     };
+
+    if (!assertOutletAccess(req, outletId)) {
+      return res.status(403).json({ error: "Forbidden: cannot create order for another outlet" });
+    }
+
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
     if (!outlet) return res.status(404).json({ error: "Outlet not found" });
 
@@ -80,7 +99,7 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
 
     await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, tableId));
 
-    return res.status(201).json({ ...order, items: [], tableName: "" });
+    return res.status(201).json({ ...order, items: [], payments: [], tableName: "" });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -92,9 +111,15 @@ router.get("/orders/:id", requireAuth, async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string);
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, id) });
     if (!order) return res.status(404).json({ error: "Not found" });
-    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const items = await itemsWithModifiers(id);
+    const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, id));
     const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, order.tableId) });
-    return res.json({ ...order, items, tableName: table?.name ?? "" });
+    return res.json({ ...order, items, payments, tableName: table?.name ?? "" });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -112,6 +137,9 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
 
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, id) });
     if (!order) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     const updates: Record<string, unknown> = {};
     if (status !== undefined) updates.status = status;
@@ -137,9 +165,10 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
     }
 
     const [updated] = await db.update(ordersTable).set(updates).where(eq(ordersTable.id, id)).returning();
-    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+    const items = await itemsWithModifiers(id);
+    const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, id));
     const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, updated.tableId) });
-    return res.json({ ...updated, items, tableName: table?.name ?? "" });
+    return res.json({ ...updated, items, payments, tableName: table?.name ?? "" });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -149,14 +178,18 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
 router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
-    const { menuItemId, quantity, notes } = req.body as {
+    const { menuItemId, quantity, notes, modifierOptionIds } = req.body as {
       menuItemId: number;
       quantity?: number;
       notes?: string;
+      modifierOptionIds?: number[];
     };
 
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
     if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     const menuItem = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, menuItemId) });
     if (!menuItem) return res.status(404).json({ error: "Menu item not found" });
@@ -176,6 +209,20 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
       kitchenStatus: "pending",
     }).returning();
 
+    if (modifierOptionIds && modifierOptionIds.length > 0) {
+      for (const optId of modifierOptionIds) {
+        const opt = await db.query.modifierOptionsTable.findFirst({ where: (t, { eq: eqFn }) => eqFn(t.id, optId) });
+        if (opt) {
+          await db.insert(orderItemModifiersTable).values({
+            orderItemId: item.id,
+            modifierOptionId: optId,
+            name: opt.name,
+            priceAdjustment: opt.priceAdjustment,
+          });
+        }
+      }
+    }
+
     const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
     const taxRate = parseFloat(outlet?.taxRate ?? "0");
@@ -188,7 +235,8 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
       total: calc.total.toFixed(2),
     }).where(eq(ordersTable.id, orderId));
 
-    return res.status(201).json(item);
+    const modifiers = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, item.id));
+    return res.status(201).json({ ...item, modifiers });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -205,6 +253,12 @@ router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res:
       kitchenStatus?: string;
     };
 
+    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
     const orderItem = await db.query.orderItemsTable.findFirst({ where: eq(orderItemsTable.id, itemId) });
     if (!orderItem) return res.status(404).json({ error: "Item not found" });
 
@@ -218,7 +272,6 @@ router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res:
 
     const [updated] = await db.update(orderItemsTable).set(updates).where(eq(orderItemsTable.id, itemId)).returning();
 
-    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
     if (order) {
       const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
       const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
@@ -232,7 +285,8 @@ router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res:
       }).where(eq(ordersTable.id, orderId));
     }
 
-    return res.json(updated);
+    const modifiers = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
+    return res.json({ ...updated, modifiers });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -244,23 +298,43 @@ router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager",
     const orderId = parseInt(req.params.id as string);
     const itemId = parseInt(req.params.itemId as string);
 
-    await db.delete(orderItemsTable).where(eq(orderItemsTable.id, itemId));
-
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
-    if (order) {
-      const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
-      const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
-      const taxRate = parseFloat(outlet?.taxRate ?? "0");
-      const calc = recalcOrder(allItems, taxRate, order.discountPercent);
-      await db.update(ordersTable).set({
-        subtotal: calc.subtotal.toFixed(2),
-        discountAmount: calc.discountAmount.toFixed(2),
-        taxAmount: calc.taxAmount.toFixed(2),
-        total: calc.total.toFixed(2),
-      }).where(eq(ordersTable.id, orderId));
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
+    await db.delete(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
+    await db.delete(orderItemsTable).where(eq(orderItemsTable.id, itemId));
+
+    const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
+    const taxRate = parseFloat(outlet?.taxRate ?? "0");
+    const calc = recalcOrder(allItems, taxRate, order.discountPercent);
+    await db.update(ordersTable).set({
+      subtotal: calc.subtotal.toFixed(2),
+      discountAmount: calc.discountAmount.toFixed(2),
+      taxAmount: calc.taxAmount.toFixed(2),
+      total: calc.total.toFixed(2),
+    }).where(eq(ordersTable.id, orderId));
+
     return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/orders/:id/payments", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.id as string);
+    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, orderId));
+    return res.json(payments);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -272,16 +346,35 @@ router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashi
     const orderId = parseInt(req.params.id as string);
     const { method, amount } = req.body as { method: "cash" | "card" | "split"; amount: number };
 
+    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (order.status === "paid") {
+      return res.status(409).json({ error: "Order is already paid" });
+    }
+
     const [payment] = await db.insert(paymentsTable).values({
       orderId,
       method,
       amount: amount.toString(),
     }).returning();
 
-    await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, orderId));
-    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
-    if (order) {
-      await db.update(tablesTable).set({ status: "available" }).where(eq(tablesTable.id, order.tableId));
+    const [{ totalPaid }] = await db
+      .select({ totalPaid: sum(paymentsTable.amount) })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.orderId, orderId));
+
+    const paidSoFar = parseFloat(totalPaid ?? "0");
+    const orderTotal = parseFloat(order.total);
+
+    if (paidSoFar >= orderTotal) {
+      await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, orderId));
+      const updatedOrder = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
+      if (updatedOrder) {
+        await db.update(tablesTable).set({ status: "available" }).where(eq(tablesTable.id, updatedOrder.tableId));
+      }
     }
 
     return res.status(201).json(payment);

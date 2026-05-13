@@ -6,9 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface OrderItemInput {
-  menuItemId: number;
-  quantity: number;
-  notes?: string;
-  modifierOptionIds?: number[];
+export interface ModifierOptionInput {
+  name: string;
+  priceAdjustment?: number;
 }

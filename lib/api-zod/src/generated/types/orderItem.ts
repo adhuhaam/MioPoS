@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OrderItemKitchenStatus } from "./orderItemKitchenStatus";
+import type { OrderItemModifier } from "./orderItemModifier";
 
 export interface OrderItem {
   id: number;
@@ -18,4 +19,5 @@ export interface OrderItem {
   /** @nullable */
   notes?: string | null;
   kitchenStatus: OrderItemKitchenStatus;
+  modifiers?: OrderItemModifier[];
 }

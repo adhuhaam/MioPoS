@@ -2,8 +2,10 @@ import { useState } from "react";
 import {
   useListCategories, getListCategoriesQueryKey, useCreateCategory, useUpdateCategory, useDeleteCategory,
   useListMenuItems, getListMenuItemsQueryKey, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem,
+  useListModifierGroups, useCreateModifierGroup, useUpdateModifierGroup, useDeleteModifierGroup,
+  useAddModifierOption, useDeleteModifierOption,
 } from "@workspace/api-client-react";
-import type { MenuCategory, MenuItem } from "@workspace/api-client-react";
+import type { MenuCategory, MenuItem, ModifierGroup } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -12,16 +14,23 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 
 type ItemForm = { name: string; description: string; price: string; available: boolean };
+type Tab = "menu" | "modifiers";
+
+function getListModifierGroupsQueryKey(params: { outletId: number }) {
+  return ["listModifierGroups", params];
+}
 
 export default function Menu() {
   const { auth } = useAuth();
   const outletId = auth!.outlet.id;
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<Tab>("menu");
 
+  // ── Menu data ────────────────────────────────────────────────────────────
   const { data: categories } = useListCategories({ outletId }, { query: { queryKey: getListCategoriesQueryKey({ outletId }) } });
   const createCat = useCreateCategory();
   const updateCat = useUpdateCategory();
@@ -92,64 +101,218 @@ export default function Menu() {
     if (!confirm("Delete this menu item?")) return;
     deleteItem.mutate({ id }, { onSuccess: invalidateItems, onError: () => toast({ variant: "destructive", title: "Failed" }) });
   };
-
   const toggleAvailable = (item: MenuItem) => {
     updateItem.mutate({ id: item.id, data: { available: !item.available } }, { onSuccess: invalidateItems });
   };
 
+  // ── Modifier data ────────────────────────────────────────────────────────
+  const { data: modifierGroups } = useListModifierGroups({ outletId }, {
+    query: { queryKey: getListModifierGroupsQueryKey({ outletId }) },
+  });
+  const createGroup = useCreateModifierGroup();
+  const updateGroup = useUpdateModifierGroup();
+  const deleteGroup = useDeleteModifierGroup();
+  const addOption = useAddModifierOption();
+  const deleteOption = useDeleteModifierOption();
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+  const [groupDialog, setGroupDialog] = useState(false);
+  const [editGroup, setEditGroup] = useState<ModifierGroup | null>(null);
+  const [groupForm, setGroupForm] = useState({ name: "", required: false, multiSelect: false });
+  const [optionDialogGroupId, setOptionDialogGroupId] = useState<number | null>(null);
+  const [optionForm, setOptionForm] = useState({ name: "", priceAdjustment: "0" });
+
+  const invalidateModifiers = () => qc.invalidateQueries({ queryKey: getListModifierGroupsQueryKey({ outletId }) });
+
+  const toggleExpand = (id: number) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const openNewGroup = () => {
+    setEditGroup(null);
+    setGroupForm({ name: "", required: false, multiSelect: false });
+    setGroupDialog(true);
+  };
+  const openEditGroup = (g: ModifierGroup) => {
+    setEditGroup(g);
+    setGroupForm({ name: g.name, required: g.required, multiSelect: g.multiSelect });
+    setGroupDialog(true);
+  };
+  const saveGroup = () => {
+    if (editGroup) {
+      updateGroup.mutate({ groupId: editGroup.id, data: groupForm }, {
+        onSuccess: () => { toast({ title: "Group updated" }); setGroupDialog(false); invalidateModifiers(); },
+        onError: () => toast({ variant: "destructive", title: "Failed" }),
+      });
+    } else {
+      createGroup.mutate({ data: { outletId, ...groupForm } }, {
+        onSuccess: () => { toast({ title: "Modifier group created" }); setGroupDialog(false); invalidateModifiers(); },
+        onError: () => toast({ variant: "destructive", title: "Failed" }),
+      });
+    }
+  };
+  const removeGroup = (id: number) => {
+    if (!confirm("Delete this modifier group and all its options?")) return;
+    deleteGroup.mutate({ groupId: id }, {
+      onSuccess: invalidateModifiers,
+      onError: () => toast({ variant: "destructive", title: "Failed" }),
+    });
+  };
+
+  const openAddOption = (groupId: number) => {
+    setOptionDialogGroupId(groupId);
+    setOptionForm({ name: "", priceAdjustment: "0" });
+  };
+  const saveOption = () => {
+    if (!optionDialogGroupId) return;
+    addOption.mutate({
+      groupId: optionDialogGroupId,
+      data: { name: optionForm.name, priceAdjustment: parseFloat(optionForm.priceAdjustment) || 0 },
+    }, {
+      onSuccess: () => { toast({ title: "Option added" }); setOptionDialogGroupId(null); invalidateModifiers(); },
+      onError: () => toast({ variant: "destructive", title: "Failed" }),
+    });
+  };
+  const removeOption = (groupId: number, optionId: number) => {
+    if (!confirm("Delete this option?")) return;
+    deleteOption.mutate({ groupId, optionId }, {
+      onSuccess: invalidateModifiers,
+      onError: () => toast({ variant: "destructive", title: "Failed" }),
+    });
+  };
+
   return (
-    <div className="flex h-full">
-      <aside className="w-64 border-r border-border flex flex-col">
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <span className="font-semibold text-sm">Categories</span>
-          <Button size="icon" variant="ghost" onClick={openNewCat} data-testid="button-create-category"><Plus className="w-4 h-4" /></Button>
-        </div>
-        <div className="flex-1 overflow-auto py-2">
-          {categories?.map(cat => (
-            <div key={cat.id} data-testid={`item-category-${cat.id}`}
-              className={`flex items-center justify-between px-4 py-2.5 cursor-pointer group transition-colors ${activeCatId === cat.id ? "bg-primary/10 text-primary" : "hover:bg-muted/50"}`}
-              onClick={() => setSelCat(cat.id)}>
-              <span className="text-sm font-medium truncate flex-1">{cat.name}</span>
-              <div className="flex gap-0.5 opacity-0 group-hover:opacity-100">
-                <button onClick={e => { e.stopPropagation(); openEditCat(cat); }} data-testid={`button-edit-category-${cat.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3 h-3" /></button>
-                <button onClick={e => { e.stopPropagation(); removeCat(cat.id); }} data-testid={`button-delete-category-${cat.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3 h-3" /></button>
+    <div className="flex flex-col h-full">
+      <div className="border-b border-border px-4 flex gap-4">
+        {(["menu", "modifiers"] as Tab[]).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`py-3 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+            {tab === "modifiers" ? "Modifier Groups" : "Menu Items"}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "menu" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <aside className="w-64 border-r border-border flex flex-col">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <span className="font-semibold text-sm">Categories</span>
+              <Button size="icon" variant="ghost" onClick={openNewCat} data-testid="button-create-category"><Plus className="w-4 h-4" /></Button>
+            </div>
+            <div className="flex-1 overflow-auto py-2">
+              {categories?.map(cat => (
+                <div key={cat.id} data-testid={`item-category-${cat.id}`}
+                  className={`flex items-center justify-between px-4 py-2.5 cursor-pointer group transition-colors ${activeCatId === cat.id ? "bg-primary/10 text-primary" : "hover:bg-muted/50"}`}
+                  onClick={() => setSelCat(cat.id)}>
+                  <span className="text-sm font-medium truncate flex-1">{cat.name}</span>
+                  <div className="flex gap-0.5 opacity-0 group-hover:opacity-100">
+                    <button onClick={e => { e.stopPropagation(); openEditCat(cat); }} data-testid={`button-edit-category-${cat.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3 h-3" /></button>
+                    <button onClick={e => { e.stopPropagation(); removeCat(cat.id); }} data-testid={`button-delete-category-${cat.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                </div>
+              ))}
+              {!categories?.length && <p className="text-xs text-muted-foreground px-4 py-3">No categories yet</p>}
+            </div>
+          </aside>
+
+          <main className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <span className="font-semibold">{categories?.find(c => c.id === activeCatId)?.name ?? "Select a category"}</span>
+              {activeCatId && <Button size="sm" onClick={openNewItem} data-testid="button-create-item"><Plus className="w-4 h-4 mr-1" />Add Item</Button>}
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {catItems.map(item => (
+                  <div key={item.id} data-testid={`card-item-${item.id}`} className={`border border-border rounded-xl p-4 bg-card space-y-2 ${!item.available ? "opacity-60" : ""}`}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{item.name}</p>
+                        {item.description && <p className="text-xs text-muted-foreground truncate">{item.description}</p>}
+                      </div>
+                      <div className="flex gap-1 ml-2">
+                        <button onClick={() => openEditItem(item)} data-testid={`button-edit-item-${item.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => removeItem(item.id)} data-testid={`button-delete-item-${item.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm">${Number(item.price).toFixed(2)}</span>
+                      <Switch checked={item.available} onCheckedChange={() => toggleAvailable(item)} data-testid={`switch-item-available-${item.id}`} />
+                    </div>
+                  </div>
+                ))}
+                {activeCatId && !catItems.length && <div className="col-span-3 text-center text-muted-foreground py-12 text-sm">No items in this category</div>}
               </div>
             </div>
-          ))}
-          {!categories?.length && <p className="text-xs text-muted-foreground px-4 py-3">No categories yet</p>}
+          </main>
         </div>
-      </aside>
+      ) : (
+        <div className="flex-1 overflow-auto p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Modifier Groups</h2>
+            <Button size="sm" onClick={openNewGroup} data-testid="button-create-modifier-group">
+              <Plus className="w-4 h-4 mr-1" />New Group
+            </Button>
+          </div>
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <span className="font-semibold">{categories?.find(c => c.id === activeCatId)?.name ?? "Select a category"}</span>
-          {activeCatId && <Button size="sm" onClick={openNewItem} data-testid="button-create-item"><Plus className="w-4 h-4 mr-1" />Add Item</Button>}
-        </div>
-        <div className="flex-1 overflow-auto p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {catItems.map(item => (
-              <div key={item.id} data-testid={`card-item-${item.id}`} className={`border border-border rounded-xl p-4 bg-card space-y-2 ${!item.available ? "opacity-60" : ""}`}>
-                <div className="flex items-start justify-between">
+          {!modifierGroups?.length && (
+            <div className="text-center text-muted-foreground py-16 text-sm">
+              No modifier groups yet. Create one to let cashiers add extras (e.g. Size, Add-ons).
+            </div>
+          )}
+
+          <div className="space-y-3 max-w-2xl">
+            {modifierGroups?.map(group => (
+              <div key={group.id} className="border border-border rounded-xl bg-card overflow-hidden" data-testid={`card-modifier-group-${group.id}`}>
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <button onClick={() => toggleExpand(group.id)} className="text-muted-foreground">
+                    {expandedGroups.has(group.id) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  </button>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm truncate">{item.name}</p>
-                    {item.description && <p className="text-xs text-muted-foreground truncate">{item.description}</p>}
+                    <p className="font-semibold text-sm">{group.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {group.options.length} option{group.options.length !== 1 ? "s" : ""}
+                      {group.required ? " · Required" : " · Optional"}
+                      {group.multiSelect ? " · Multi-select" : " · Single-select"}
+                    </p>
                   </div>
-                  <div className="flex gap-1 ml-2">
-                    <button onClick={() => openEditItem(item)} data-testid={`button-edit-item-${item.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => removeItem(item.id)} data-testid={`button-delete-item-${item.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => openEditGroup(group)} data-testid={`button-edit-modifier-group-${group.id}`} className="p-1 rounded hover:bg-muted"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => removeGroup(group.id)} data-testid={`button-delete-modifier-group-${group.id}`} className="p-1 rounded hover:bg-muted text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+
+                {expandedGroups.has(group.id) && (
+                  <div className="border-t border-border px-4 pb-3">
+                    <div className="space-y-1 mt-2">
+                      {group.options.map(opt => (
+                        <div key={opt.id} className="flex items-center justify-between text-sm py-1 px-2 rounded hover:bg-muted/50" data-testid={`option-${opt.id}`}>
+                          <span>{opt.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground text-xs">
+                              {Number(opt.priceAdjustment) === 0 ? "No charge" : `+$${Number(opt.priceAdjustment).toFixed(2)}`}
+                            </span>
+                            <button onClick={() => removeOption(group.id, opt.id)} className="p-0.5 rounded hover:bg-muted text-destructive">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {!group.options.length && <p className="text-xs text-muted-foreground py-1">No options yet</p>}
+                    </div>
+                    <Button size="sm" variant="outline" className="mt-2 h-7 text-xs" onClick={() => openAddOption(group.id)} data-testid={`button-add-option-${group.id}`}>
+                      <Plus className="w-3 h-3 mr-1" />Add Option
+                    </Button>
                   </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-sm">${Number(item.price).toFixed(2)}</span>
-                  <Switch checked={item.available} onCheckedChange={() => toggleAvailable(item)} data-testid={`switch-item-available-${item.id}`} />
-                </div>
+                )}
               </div>
             ))}
-            {activeCatId && !catItems.length && <div className="col-span-3 text-center text-muted-foreground py-12 text-sm">No items in this category</div>}
           </div>
         </div>
-      </main>
+      )}
 
+      {/* Category Dialog */}
       <Dialog open={catDialog} onOpenChange={setCatDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>{editCat ? "Edit Category" : "New Category"}</DialogTitle></DialogHeader>
@@ -162,6 +325,7 @@ export default function Menu() {
         </DialogContent>
       </Dialog>
 
+      {/* Item Dialog */}
       <Dialog open={itemDialog} onOpenChange={setItemDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>{editItem ? "Edit Item" : "New Item"}</DialogTitle></DialogHeader>
@@ -174,6 +338,43 @@ export default function Menu() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setItemDialog(false)}>Cancel</Button>
             <Button onClick={saveItem} disabled={createItem.isPending || updateItem.isPending} data-testid="button-save-item">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modifier Group Dialog */}
+      <Dialog open={groupDialog} onOpenChange={setGroupDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editGroup ? "Edit Modifier Group" : "New Modifier Group"}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Group Name</Label><Input value={groupForm.name} onChange={e => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Size, Extras, Spice Level" data-testid="input-modifier-group-name" /></div>
+            <div className="flex items-center gap-2">
+              <Switch checked={groupForm.required} onCheckedChange={v => setGroupForm(f => ({ ...f, required: v }))} data-testid="switch-modifier-required" />
+              <Label>Required selection</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={groupForm.multiSelect} onCheckedChange={v => setGroupForm(f => ({ ...f, multiSelect: v }))} data-testid="switch-modifier-multiselect" />
+              <Label>Allow multiple options</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGroupDialog(false)}>Cancel</Button>
+            <Button onClick={saveGroup} disabled={createGroup.isPending || updateGroup.isPending} data-testid="button-save-modifier-group">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Option Dialog */}
+      <Dialog open={optionDialogGroupId !== null} onOpenChange={open => { if (!open) setOptionDialogGroupId(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Modifier Option</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Option Name</Label><Input value={optionForm.name} onChange={e => setOptionForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Large, Extra Cheese" data-testid="input-option-name" /></div>
+            <div><Label>Price Adjustment ($)</Label><Input type="number" step="0.01" value={optionForm.priceAdjustment} onChange={e => setOptionForm(f => ({ ...f, priceAdjustment: e.target.value }))} placeholder="0.00" data-testid="input-option-price" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOptionDialogGroupId(null)}>Cancel</Button>
+            <Button onClick={saveOption} disabled={addOption.isPending} data-testid="button-save-option">Add Option</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -150,6 +150,52 @@ export interface MenuItemUpdate {
   available?: boolean;
 }
 
+export interface ModifierOption {
+  id: number;
+  groupId: number;
+  name: string;
+  priceAdjustment: number;
+}
+
+export interface ModifierGroup {
+  id: number;
+  outletId: number;
+  name: string;
+  required: boolean;
+  multiSelect: boolean;
+  options: ModifierOption[];
+}
+
+export interface ModifierGroupInput {
+  outletId: number;
+  name: string;
+  required?: boolean;
+  multiSelect?: boolean;
+}
+
+export interface ModifierGroupUpdate {
+  name?: string;
+  required?: boolean;
+  multiSelect?: boolean;
+}
+
+export interface ModifierOptionInput {
+  name: string;
+  priceAdjustment?: number;
+}
+
+export interface OrderItemModifier {
+  id: number;
+  orderItemId: number;
+  modifierOptionId: number;
+  name: string;
+  priceAdjustment: number;
+}
+
+export interface OrderItemModifierInput {
+  modifierOptionId: number;
+}
+
 export type TableStatus = (typeof TableStatus)[keyof typeof TableStatus];
 
 export const TableStatus = {
@@ -256,6 +302,23 @@ export interface OrderItem {
   /** @nullable */
   notes?: string | null;
   kitchenStatus: OrderItemKitchenStatus;
+  modifiers?: OrderItemModifier[];
+}
+
+export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+
+export const PaymentMethod = {
+  cash: "cash",
+  card: "card",
+  split: "split",
+} as const;
+
+export interface Payment {
+  id: number;
+  orderId: number;
+  method: PaymentMethod;
+  amount: number;
+  createdAt: string;
 }
 
 export interface OrderDetail {
@@ -276,6 +339,7 @@ export interface OrderDetail {
   notes?: string | null;
   createdAt: string;
   items: OrderItem[];
+  payments: Payment[];
 }
 
 export interface OrderListResponse {
@@ -310,6 +374,7 @@ export interface OrderItemInput {
   menuItemId: number;
   quantity: number;
   notes?: string;
+  modifierOptionIds?: number[];
 }
 
 export type OrderItemUpdateKitchenStatus =
@@ -345,22 +410,6 @@ export interface KitchenOrder {
   status: KitchenOrderStatus;
   createdAt: string;
   items: OrderItem[];
-}
-
-export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
-
-export const PaymentMethod = {
-  cash: "cash",
-  card: "card",
-  split: "split",
-} as const;
-
-export interface Payment {
-  id: number;
-  orderId: number;
-  method: PaymentMethod;
-  amount: number;
-  createdAt: string;
 }
 
 export type PaymentInputMethod =
@@ -437,6 +486,10 @@ export type ListCategoriesParams = {
 export type ListMenuItemsParams = {
   outletId: number;
   categoryId?: number;
+};
+
+export type ListModifierGroupsParams = {
+  outletId: number;
 };
 
 export type ListTablesParams = {

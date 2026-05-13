@@ -1,0 +1,202 @@
+import { Router } from "express";
+import type { Request, Response } from "express";
+import { eq } from "drizzle-orm";
+import {
+  db,
+  modifierGroupsTable,
+  modifierOptionsTable,
+  orderItemModifiersTable,
+  type ModifierGroup,
+  type ModifierOption,
+} from "@workspace/db";
+import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
+
+const router = Router();
+
+async function groupWithOptions(group: ModifierGroup): Promise<ModifierGroup & { options: ModifierOption[] }> {
+  const options = await db.select().from(modifierOptionsTable).where(eq(modifierOptionsTable.groupId, group.id));
+  return { ...group, options };
+}
+
+function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
+  if (req.session.role === "super_admin") return true;
+  return req.session.outletId === resourceOutletId;
+}
+
+router.get("/menu/modifiers", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+
+    const groups = outletId
+      ? await db.select().from(modifierGroupsTable).where(eq(modifierGroupsTable.outletId, outletId))
+      : await db.select().from(modifierGroupsTable);
+
+    const result = await Promise.all(groups.map(groupWithOptions));
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/menu/modifiers", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const { outletId, name, required, multiSelect } = req.body as {
+      outletId: number;
+      name: string;
+      required?: boolean;
+      multiSelect?: boolean;
+    };
+
+    if (!assertOutletAccess(req, outletId)) {
+      return res.status(403).json({ error: "Forbidden: cannot create modifier for another outlet" });
+    }
+
+    const [group] = await db.insert(modifierGroupsTable).values({
+      outletId,
+      name,
+      required: required ?? false,
+      multiSelect: multiSelect ?? false,
+    }).returning();
+
+    return res.status(201).json({ ...group, options: [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/menu/modifiers/:groupId", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt(req.params.groupId as string);
+    const { name, required, multiSelect } = req.body as {
+      name?: string;
+      required?: boolean;
+      multiSelect?: boolean;
+    };
+
+    const existing = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name;
+    if (required !== undefined) updates.required = required;
+    if (multiSelect !== undefined) updates.multiSelect = multiSelect;
+
+    const [updated] = await db.update(modifierGroupsTable).set(updates).where(eq(modifierGroupsTable.id, groupId)).returning();
+    return res.json(await groupWithOptions(updated));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/menu/modifiers/:groupId", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt(req.params.groupId as string);
+    const existing = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    await db.delete(modifierGroupsTable).where(eq(modifierGroupsTable.id, groupId));
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/menu/modifiers/:groupId/options", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt(req.params.groupId as string);
+    const { name, priceAdjustment } = req.body as { name: string; priceAdjustment?: number };
+
+    const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
+    if (!group) return res.status(404).json({ error: "Modifier group not found" });
+    if (!assertOutletAccess(req, group.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const [option] = await db.insert(modifierOptionsTable).values({
+      groupId,
+      name,
+      priceAdjustment: (priceAdjustment ?? 0).toFixed(2),
+    }).returning();
+    return res.status(201).json(option);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/menu/modifiers/:groupId/options/:optionId", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt(req.params.groupId as string);
+    const optionId = parseInt(req.params.optionId as string);
+    const { name, priceAdjustment } = req.body as { name?: string; priceAdjustment?: number };
+
+    const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
+    if (!group) return res.status(404).json({ error: "Modifier group not found" });
+    if (!assertOutletAccess(req, group.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name;
+    if (priceAdjustment !== undefined) updates.priceAdjustment = priceAdjustment.toFixed(2);
+
+    const [updated] = await db.update(modifierOptionsTable).set(updates).where(eq(modifierOptionsTable.id, optionId)).returning();
+    if (!updated) return res.status(404).json({ error: "Option not found" });
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/menu/modifiers/:groupId/options/:optionId", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt(req.params.groupId as string);
+    const optionId = parseInt(req.params.optionId as string);
+
+    const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
+    if (!group) return res.status(404).json({ error: "Modifier group not found" });
+    if (!assertOutletAccess(req, group.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await db.delete(modifierOptionsTable).where(eq(modifierOptionsTable.id, optionId));
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/orders/:id/items/:itemId/modifiers", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+  try {
+    const itemId = parseInt(req.params.itemId as string);
+    const { modifierOptionId } = req.body as { modifierOptionId: number };
+
+    const option = await db.query.modifierOptionsTable.findFirst({ where: eq(modifierOptionsTable.id, modifierOptionId) });
+    if (!option) return res.status(404).json({ error: "Modifier option not found" });
+
+    const [mod] = await db.insert(orderItemModifiersTable).values({
+      orderItemId: itemId,
+      modifierOptionId,
+      name: option.name,
+      priceAdjustment: option.priceAdjustment,
+    }).returning();
+    return res.status(201).json(mod);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;

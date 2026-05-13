@@ -6,8 +6,9 @@ import {
   useListTables, getListTablesQueryKey,
   useCreateOrder, useGetOrder, getGetOrderQueryKey,
   useAddOrderItem, useRemoveOrderItem, useUpdateOrder, useRecordPayment,
+  useListModifierGroups,
 } from "@workspace/api-client-react";
-import type { MenuItem, OrderDetail, OrderItem } from "@workspace/api-client-react";
+import type { MenuItem, OrderDetail, OrderItem, ModifierGroup } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ShoppingCart, X, Send, Receipt, CreditCard } from "lucide-react";
+import { ShoppingCart, X, Send, Receipt, CreditCard, Banknote, SplitSquareHorizontal } from "lucide-react";
 
-type PayMethod = "cash" | "card" | "split";
+type PayMode = "cash" | "card" | "split";
+
+function getListModifierGroupsQueryKey(params: { outletId: number }) {
+  return ["listModifierGroups", params];
+}
 
 export default function POS() {
   const { auth } = useAuth();
@@ -35,12 +40,22 @@ export default function POS() {
   const [activeCatId, setActiveCatId] = useState<number | null>(null);
   const [discountPercent, setDiscountPercent] = useState("");
   const [payDialog, setPayDialog] = useState(false);
-  const [payMethod, setPayMethod] = useState<PayMethod>("cash");
-  const [payAmount, setPayAmount] = useState("");
+  const [payMode, setPayMode] = useState<PayMode>("cash");
+  const [cashAmount, setCashAmount] = useState("");
+  const [cardAmount, setCardAmount] = useState("");
+  const [paidLegs, setPaidLegs] = useState<{ method: "cash" | "card"; amount: number }[]>([]);
+
+  // Modifier selection state
+  const [modifierDialog, setModifierDialog] = useState(false);
+  const [pendingItem, setPendingItem] = useState<MenuItem | null>(null);
+  const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
 
   const { data: categories } = useListCategories({ outletId }, { query: { queryKey: getListCategoriesQueryKey({ outletId }) } });
   const { data: menuItems } = useListMenuItems({ outletId }, { query: { queryKey: getListMenuItemsQueryKey({ outletId }) } });
   const { data: tables } = useListTables({ outletId }, { query: { queryKey: getListTablesQueryKey({ outletId }) } });
+  const { data: modifierGroups } = useListModifierGroups({ outletId }, {
+    query: { enabled: !!outletId, queryKey: getListModifierGroupsQueryKey({ outletId }) },
+  });
 
   const curCatId = activeCatId ?? categories?.[0]?.id;
   const catItems = menuItems?.filter(i => i.categoryId === curCatId && i.available) ?? [];
@@ -55,6 +70,13 @@ export default function POS() {
     activeOrderId!,
     { query: { enabled: !!activeOrderId, queryKey: getGetOrderQueryKey(activeOrderId!) } }
   );
+
+  const typedOrder = order as OrderDetail | undefined;
+  const items: OrderItem[] = typedOrder?.items ?? [];
+  const subtotal = Number(typedOrder?.subtotal ?? 0);
+  const tax = Number(typedOrder?.taxAmount ?? 0);
+  const discount = Number(typedOrder?.discountAmount ?? 0);
+  const total = Number(typedOrder?.total ?? 0);
 
   useEffect(() => {
     if (urlTableId && !activeOrderId) {
@@ -82,13 +104,47 @@ export default function POS() {
 
   const handleAddItem = (item: MenuItem) => {
     if (!activeOrderId) return;
+    const hasModifiers = modifierGroups && modifierGroups.length > 0;
+    if (hasModifiers) {
+      setPendingItem(item);
+      setSelectedOptionIds([]);
+      setModifierDialog(true);
+    } else {
+      doAddItem(item, []);
+    }
+  };
+
+  const doAddItem = (item: MenuItem, optionIds: number[]) => {
+    if (!activeOrderId) return;
     addItem.mutate(
-      { id: activeOrderId, data: { menuItemId: item.id, quantity: 1 } },
+      { id: activeOrderId, data: { menuItemId: item.id, quantity: 1, modifierOptionIds: optionIds } },
       {
-        onSuccess: () => { refetchOrder(); },
+        onSuccess: () => refetchOrder(),
         onError: () => toast({ variant: "destructive", title: "Failed to add item" }),
       }
     );
+  };
+
+  const handleConfirmModifiers = () => {
+    if (!pendingItem) return;
+    doAddItem(pendingItem, selectedOptionIds);
+    setModifierDialog(false);
+    setPendingItem(null);
+    setSelectedOptionIds([]);
+  };
+
+  const toggleOptionId = (group: ModifierGroup, optId: number) => {
+    if (group.multiSelect) {
+      setSelectedOptionIds(prev =>
+        prev.includes(optId) ? prev.filter(id => id !== optId) : [...prev, optId]
+      );
+    } else {
+      const groupOptIds = group.options.map(o => o.id);
+      setSelectedOptionIds(prev => {
+        const withoutGroup = prev.filter(id => !groupOptIds.includes(id));
+        return prev.includes(optId) ? withoutGroup : [...withoutGroup, optId];
+      });
+    }
   };
 
   const handleRemoveItem = (itemId: number) => {
@@ -120,36 +176,59 @@ export default function POS() {
         onSuccess: () => {
           refetchOrder();
           qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
-          setPayAmount(String(order?.total ?? ""));
+          setCashAmount(String(total.toFixed(2)));
+          setCardAmount("");
+          setPaidLegs([]);
+          setPayMode("cash");
           setPayDialog(true);
         }
       }
     );
   };
 
-  const handlePay = () => {
-    if (!activeOrderId) return;
+  const totalPaidSoFar = paidLegs.reduce((s, l) => s + l.amount, 0);
+  const remainingBalance = Math.max(0, total - totalPaidSoFar);
+
+  const submitPaymentLeg = (method: "cash" | "card", amount: number) => {
+    if (!activeOrderId || amount <= 0) return;
     recordPayment.mutate(
-      { id: activeOrderId, data: { method: payMethod, amount: parseFloat(payAmount) } },
+      { id: activeOrderId, data: { method, amount } },
       {
         onSuccess: () => {
-          toast({ title: "Payment recorded. Order closed." });
-          setPayDialog(false);
-          setActiveOrderId(null);
-          setSelectedTableId(null);
-          qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
+          const newLegs = [...paidLegs, { method, amount }];
+          const newTotal = newLegs.reduce((s, l) => s + l.amount, 0);
+          setPaidLegs(newLegs);
+          if (newTotal >= total) {
+            toast({ title: "Payment complete. Order closed." });
+            setPayDialog(false);
+            setActiveOrderId(null);
+            setSelectedTableId(null);
+            setPaidLegs([]);
+            qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
+          } else {
+            toast({ title: `$${amount.toFixed(2)} recorded. Remaining: $${(total - newTotal).toFixed(2)}` });
+            setCashAmount("");
+            setCardAmount("");
+          }
+          refetchOrder();
         },
         onError: () => toast({ variant: "destructive", title: "Payment failed" }),
       }
     );
   };
 
-  const typedOrder = order as OrderDetail | undefined;
-  const items: OrderItem[] = typedOrder?.items ?? [];
-  const subtotal = Number(typedOrder?.subtotal ?? 0);
-  const tax = Number(typedOrder?.taxAmount ?? 0);
-  const discount = Number(typedOrder?.discountAmount ?? 0);
-  const total = Number(typedOrder?.total ?? 0);
+  const handlePay = () => {
+    if (payMode === "cash") {
+      submitPaymentLeg("cash", parseFloat(cashAmount) || total);
+    } else if (payMode === "card") {
+      submitPaymentLeg("card", parseFloat(cardAmount) || total);
+    } else {
+      const cash = parseFloat(cashAmount) || 0;
+      const card = parseFloat(cardAmount) || 0;
+      if (cash > 0) submitPaymentLeg("cash", cash);
+      if (card > 0) submitPaymentLeg("card", card);
+    }
+  };
 
   const availTables = tables?.filter(t => t.status === "available") ?? [];
 
@@ -217,10 +296,15 @@ export default function POS() {
 
         <div className="flex-1 overflow-auto p-3 space-y-2">
           {items.map((item: OrderItem) => (
-            <div key={item.id} data-testid={`order-item-${item.id}`} className="flex items-center gap-2 bg-muted/30 rounded-lg p-2.5">
+            <div key={item.id} data-testid={`order-item-${item.id}`} className="flex items-start gap-2 bg-muted/30 rounded-lg p-2.5">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{item.menuItemName}</p>
                 <p className="text-xs text-muted-foreground">${Number(item.unitPrice).toFixed(2)} × {item.quantity}</p>
+                {item.modifiers && item.modifiers.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {item.modifiers.map(m => m.name).join(", ")}
+                  </p>
+                )}
               </div>
               <p className="text-sm font-semibold">${Number(item.total).toFixed(2)}</p>
               <button onClick={() => handleRemoveItem(item.id)} data-testid={`button-remove-item-${item.id}`} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
@@ -262,34 +346,109 @@ export default function POS() {
         </div>
       </aside>
 
+      {/* Modifier selection dialog */}
+      <Dialog open={modifierDialog} onOpenChange={open => { if (!open) { setModifierDialog(false); setPendingItem(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Customise: {pendingItem?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 max-h-80 overflow-y-auto py-1">
+            {modifierGroups?.map(group => (
+              <div key={group.id}>
+                <p className="text-sm font-semibold mb-1.5">
+                  {group.name}
+                  {group.required && <span className="ml-1 text-destructive text-xs">*</span>}
+                  <span className="ml-1 text-xs text-muted-foreground font-normal">
+                    ({group.multiSelect ? "choose any" : "choose one"})
+                  </span>
+                </p>
+                <div className="space-y-1">
+                  {group.options.map(opt => {
+                    const selected = selectedOptionIds.includes(opt.id);
+                    return (
+                      <button key={opt.id}
+                        onClick={() => toggleOptionId(group, opt.id)}
+                        className={`w-full flex items-center justify-between text-sm px-3 py-2 rounded-lg border transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted/50"}`}
+                        data-testid={`option-select-${opt.id}`}>
+                        <span>{opt.name}</span>
+                        {Number(opt.priceAdjustment) > 0 && (
+                          <span className="text-xs text-muted-foreground">+${Number(opt.priceAdjustment).toFixed(2)}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setModifierDialog(false); setPendingItem(null); }}>Skip</Button>
+            <Button onClick={handleConfirmModifiers} data-testid="button-confirm-modifiers">Add to Order</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment dialog */}
       <Dialog open={payDialog} onOpenChange={setPayDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Record Payment</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div>
+            <div className="flex justify-between items-baseline">
               <Label>Total Due</Label>
               <p className="text-2xl font-bold">${total.toFixed(2)}</p>
             </div>
+
+            {paidLegs.length > 0 && (
+              <div className="bg-muted/40 rounded-lg p-3 space-y-1 text-sm">
+                {paidLegs.map((leg, i) => (
+                  <div key={i} className="flex justify-between text-muted-foreground">
+                    <span className="capitalize">{leg.method}</span>
+                    <span>${leg.amount.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-semibold text-primary border-t border-border pt-1 mt-1">
+                  <span>Remaining</span>
+                  <span>${remainingBalance.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
             <div>
               <Label>Payment Method</Label>
-              <Select value={payMethod} onValueChange={v => setPayMethod(v as PayMethod)}>
-                <SelectTrigger data-testid="select-pay-method"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="card">Card</SelectItem>
-                  <SelectItem value="split">Split</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2 mt-1.5">
+                {(["cash", "card", "split"] as PayMode[]).map(m => (
+                  <button key={m} onClick={() => {
+                    setPayMode(m);
+                    if (m === "cash") { setCashAmount(remainingBalance.toFixed(2)); setCardAmount(""); }
+                    else if (m === "card") { setCardAmount(remainingBalance.toFixed(2)); setCashAmount(""); }
+                    else { setCashAmount(""); setCardAmount(""); }
+                  }}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-sm font-medium transition-colors ${payMode === m ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted/50"}`}
+                    data-testid={`button-pay-mode-${m}`}>
+                    {m === "cash" ? <Banknote className="w-4 h-4" /> : m === "card" ? <CreditCard className="w-4 h-4" /> : <SplitSquareHorizontal className="w-4 h-4" />}
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div>
-              <Label>Amount</Label>
-              <Input type="number" step="0.01" value={payAmount} onChange={e => setPayAmount(e.target.value)} data-testid="input-pay-amount" />
-            </div>
+
+            {payMode !== "card" && (
+              <div>
+                <Label>{payMode === "split" ? "Cash Amount" : "Amount"}</Label>
+                <Input type="number" step="0.01" value={cashAmount} onChange={e => setCashAmount(e.target.value)} data-testid="input-cash-amount" placeholder={remainingBalance.toFixed(2)} />
+              </div>
+            )}
+            {payMode !== "cash" && (
+              <div>
+                <Label>{payMode === "split" ? "Card Amount" : "Amount"}</Label>
+                <Input type="number" step="0.01" value={cardAmount} onChange={e => setCardAmount(e.target.value)} data-testid="input-card-amount" placeholder={payMode === "card" ? remainingBalance.toFixed(2) : "0.00"} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPayDialog(false)}>Cancel</Button>
             <Button onClick={handlePay} disabled={recordPayment.isPending} data-testid="button-confirm-payment">
-              <CreditCard className="w-4 h-4 mr-2" />Confirm Payment
+              <CreditCard className="w-4 h-4 mr-2" />Record Payment
             </Button>
           </DialogFooter>
         </DialogContent>

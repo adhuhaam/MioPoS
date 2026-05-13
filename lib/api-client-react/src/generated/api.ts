@@ -28,6 +28,7 @@ import type {
   ListCategoriesParams,
   ListKitchenOrdersParams,
   ListMenuItemsParams,
+  ListModifierGroupsParams,
   ListOrdersParams,
   ListStaffParams,
   ListTablesParams,
@@ -38,11 +39,18 @@ import type {
   MenuItem,
   MenuItemInput,
   MenuItemUpdate,
+  ModifierGroup,
+  ModifierGroupInput,
+  ModifierGroupUpdate,
+  ModifierOption,
+  ModifierOptionInput,
   Order,
   OrderDetail,
   OrderInput,
   OrderItem,
   OrderItemInput,
+  OrderItemModifier,
+  OrderItemModifierInput,
   OrderItemUpdate,
   OrderListResponse,
   OrderUpdate,
@@ -1927,6 +1935,629 @@ export const useDeleteMenuItem = <
 };
 
 /**
+ * @summary List modifier groups for an outlet
+ */
+export const getListModifierGroupsUrl = (params: ListModifierGroupsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/menu/modifiers?${stringifiedParams}`
+    : `/api/menu/modifiers`;
+};
+
+export const listModifierGroups = async (
+  params: ListModifierGroupsParams,
+  options?: RequestInit,
+): Promise<ModifierGroup[]> => {
+  return customFetch<ModifierGroup[]>(getListModifierGroupsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListModifierGroupsQueryKey = (
+  params?: ListModifierGroupsParams,
+) => {
+  return [`/api/menu/modifiers`, ...(params ? [params] : [])] as const;
+};
+
+export const getListModifierGroupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listModifierGroups>>,
+  TError = ErrorType<unknown>,
+>(
+  params: ListModifierGroupsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listModifierGroups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListModifierGroupsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listModifierGroups>>
+  > = ({ signal }) => listModifierGroups(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listModifierGroups>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListModifierGroupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listModifierGroups>>
+>;
+export type ListModifierGroupsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List modifier groups for an outlet
+ */
+
+export function useListModifierGroups<
+  TData = Awaited<ReturnType<typeof listModifierGroups>>,
+  TError = ErrorType<unknown>,
+>(
+  params: ListModifierGroupsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listModifierGroups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListModifierGroupsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a modifier group
+ */
+export const getCreateModifierGroupUrl = () => {
+  return `/api/menu/modifiers`;
+};
+
+export const createModifierGroup = async (
+  modifierGroupInput: ModifierGroupInput,
+  options?: RequestInit,
+): Promise<ModifierGroup> => {
+  return customFetch<ModifierGroup>(getCreateModifierGroupUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(modifierGroupInput),
+  });
+};
+
+export const getCreateModifierGroupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createModifierGroup>>,
+    TError,
+    { data: BodyType<ModifierGroupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createModifierGroup>>,
+  TError,
+  { data: BodyType<ModifierGroupInput> },
+  TContext
+> => {
+  const mutationKey = ["createModifierGroup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createModifierGroup>>,
+    { data: BodyType<ModifierGroupInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createModifierGroup(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateModifierGroupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createModifierGroup>>
+>;
+export type CreateModifierGroupMutationBody = BodyType<ModifierGroupInput>;
+export type CreateModifierGroupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a modifier group
+ */
+export const useCreateModifierGroup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createModifierGroup>>,
+    TError,
+    { data: BodyType<ModifierGroupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createModifierGroup>>,
+  TError,
+  { data: BodyType<ModifierGroupInput> },
+  TContext
+> => {
+  return useMutation(getCreateModifierGroupMutationOptions(options));
+};
+
+/**
+ * @summary Update a modifier group
+ */
+export const getUpdateModifierGroupUrl = (groupId: number) => {
+  return `/api/menu/modifiers/${groupId}`;
+};
+
+export const updateModifierGroup = async (
+  groupId: number,
+  modifierGroupUpdate: ModifierGroupUpdate,
+  options?: RequestInit,
+): Promise<ModifierGroup> => {
+  return customFetch<ModifierGroup>(getUpdateModifierGroupUrl(groupId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(modifierGroupUpdate),
+  });
+};
+
+export const getUpdateModifierGroupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateModifierGroup>>,
+    TError,
+    { groupId: number; data: BodyType<ModifierGroupUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateModifierGroup>>,
+  TError,
+  { groupId: number; data: BodyType<ModifierGroupUpdate> },
+  TContext
+> => {
+  const mutationKey = ["updateModifierGroup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateModifierGroup>>,
+    { groupId: number; data: BodyType<ModifierGroupUpdate> }
+  > = (props) => {
+    const { groupId, data } = props ?? {};
+
+    return updateModifierGroup(groupId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateModifierGroupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateModifierGroup>>
+>;
+export type UpdateModifierGroupMutationBody = BodyType<ModifierGroupUpdate>;
+export type UpdateModifierGroupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a modifier group
+ */
+export const useUpdateModifierGroup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateModifierGroup>>,
+    TError,
+    { groupId: number; data: BodyType<ModifierGroupUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateModifierGroup>>,
+  TError,
+  { groupId: number; data: BodyType<ModifierGroupUpdate> },
+  TContext
+> => {
+  return useMutation(getUpdateModifierGroupMutationOptions(options));
+};
+
+/**
+ * @summary Delete a modifier group
+ */
+export const getDeleteModifierGroupUrl = (groupId: number) => {
+  return `/api/menu/modifiers/${groupId}`;
+};
+
+export const deleteModifierGroup = async (
+  groupId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteModifierGroupUrl(groupId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteModifierGroupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteModifierGroup>>,
+    TError,
+    { groupId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteModifierGroup>>,
+  TError,
+  { groupId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteModifierGroup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteModifierGroup>>,
+    { groupId: number }
+  > = (props) => {
+    const { groupId } = props ?? {};
+
+    return deleteModifierGroup(groupId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteModifierGroupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteModifierGroup>>
+>;
+
+export type DeleteModifierGroupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a modifier group
+ */
+export const useDeleteModifierGroup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteModifierGroup>>,
+    TError,
+    { groupId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteModifierGroup>>,
+  TError,
+  { groupId: number },
+  TContext
+> => {
+  return useMutation(getDeleteModifierGroupMutationOptions(options));
+};
+
+/**
+ * @summary Add an option to a modifier group
+ */
+export const getAddModifierOptionUrl = (groupId: number) => {
+  return `/api/menu/modifiers/${groupId}/options`;
+};
+
+export const addModifierOption = async (
+  groupId: number,
+  modifierOptionInput: ModifierOptionInput,
+  options?: RequestInit,
+): Promise<ModifierOption> => {
+  return customFetch<ModifierOption>(getAddModifierOptionUrl(groupId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(modifierOptionInput),
+  });
+};
+
+export const getAddModifierOptionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addModifierOption>>,
+    TError,
+    { groupId: number; data: BodyType<ModifierOptionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addModifierOption>>,
+  TError,
+  { groupId: number; data: BodyType<ModifierOptionInput> },
+  TContext
+> => {
+  const mutationKey = ["addModifierOption"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addModifierOption>>,
+    { groupId: number; data: BodyType<ModifierOptionInput> }
+  > = (props) => {
+    const { groupId, data } = props ?? {};
+
+    return addModifierOption(groupId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddModifierOptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addModifierOption>>
+>;
+export type AddModifierOptionMutationBody = BodyType<ModifierOptionInput>;
+export type AddModifierOptionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Add an option to a modifier group
+ */
+export const useAddModifierOption = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addModifierOption>>,
+    TError,
+    { groupId: number; data: BodyType<ModifierOptionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addModifierOption>>,
+  TError,
+  { groupId: number; data: BodyType<ModifierOptionInput> },
+  TContext
+> => {
+  return useMutation(getAddModifierOptionMutationOptions(options));
+};
+
+/**
+ * @summary Update a modifier option
+ */
+export const getUpdateModifierOptionUrl = (
+  groupId: number,
+  optionId: number,
+) => {
+  return `/api/menu/modifiers/${groupId}/options/${optionId}`;
+};
+
+export const updateModifierOption = async (
+  groupId: number,
+  optionId: number,
+  modifierOptionInput: ModifierOptionInput,
+  options?: RequestInit,
+): Promise<ModifierOption> => {
+  return customFetch<ModifierOption>(
+    getUpdateModifierOptionUrl(groupId, optionId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(modifierOptionInput),
+    },
+  );
+};
+
+export const getUpdateModifierOptionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateModifierOption>>,
+    TError,
+    { groupId: number; optionId: number; data: BodyType<ModifierOptionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateModifierOption>>,
+  TError,
+  { groupId: number; optionId: number; data: BodyType<ModifierOptionInput> },
+  TContext
+> => {
+  const mutationKey = ["updateModifierOption"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateModifierOption>>,
+    { groupId: number; optionId: number; data: BodyType<ModifierOptionInput> }
+  > = (props) => {
+    const { groupId, optionId, data } = props ?? {};
+
+    return updateModifierOption(groupId, optionId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateModifierOptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateModifierOption>>
+>;
+export type UpdateModifierOptionMutationBody = BodyType<ModifierOptionInput>;
+export type UpdateModifierOptionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a modifier option
+ */
+export const useUpdateModifierOption = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateModifierOption>>,
+    TError,
+    { groupId: number; optionId: number; data: BodyType<ModifierOptionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateModifierOption>>,
+  TError,
+  { groupId: number; optionId: number; data: BodyType<ModifierOptionInput> },
+  TContext
+> => {
+  return useMutation(getUpdateModifierOptionMutationOptions(options));
+};
+
+/**
+ * @summary Delete a modifier option
+ */
+export const getDeleteModifierOptionUrl = (
+  groupId: number,
+  optionId: number,
+) => {
+  return `/api/menu/modifiers/${groupId}/options/${optionId}`;
+};
+
+export const deleteModifierOption = async (
+  groupId: number,
+  optionId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteModifierOptionUrl(groupId, optionId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteModifierOptionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteModifierOption>>,
+    TError,
+    { groupId: number; optionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteModifierOption>>,
+  TError,
+  { groupId: number; optionId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteModifierOption"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteModifierOption>>,
+    { groupId: number; optionId: number }
+  > = (props) => {
+    const { groupId, optionId } = props ?? {};
+
+    return deleteModifierOption(groupId, optionId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteModifierOptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteModifierOption>>
+>;
+
+export type DeleteModifierOptionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a modifier option
+ */
+export const useDeleteModifierOption = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteModifierOption>>,
+    TError,
+    { groupId: number; optionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteModifierOption>>,
+  TError,
+  { groupId: number; optionId: number },
+  TContext
+> => {
+  return useMutation(getDeleteModifierOptionMutationOptions(options));
+};
+
+/**
  * @summary List tables for an outlet
  */
 export const getListTablesUrl = (params: ListTablesParams) => {
@@ -2890,6 +3521,97 @@ export const useRemoveOrderItem = <
 };
 
 /**
+ * @summary Attach a modifier option to an order item
+ */
+export const getAddOrderItemModifierUrl = (id: number, itemId: number) => {
+  return `/api/orders/${id}/items/${itemId}/modifiers`;
+};
+
+export const addOrderItemModifier = async (
+  id: number,
+  itemId: number,
+  orderItemModifierInput: OrderItemModifierInput,
+  options?: RequestInit,
+): Promise<OrderItemModifier> => {
+  return customFetch<OrderItemModifier>(
+    getAddOrderItemModifierUrl(id, itemId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(orderItemModifierInput),
+    },
+  );
+};
+
+export const getAddOrderItemModifierMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addOrderItemModifier>>,
+    TError,
+    { id: number; itemId: number; data: BodyType<OrderItemModifierInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addOrderItemModifier>>,
+  TError,
+  { id: number; itemId: number; data: BodyType<OrderItemModifierInput> },
+  TContext
+> => {
+  const mutationKey = ["addOrderItemModifier"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addOrderItemModifier>>,
+    { id: number; itemId: number; data: BodyType<OrderItemModifierInput> }
+  > = (props) => {
+    const { id, itemId, data } = props ?? {};
+
+    return addOrderItemModifier(id, itemId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddOrderItemModifierMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addOrderItemModifier>>
+>;
+export type AddOrderItemModifierMutationBody = BodyType<OrderItemModifierInput>;
+export type AddOrderItemModifierMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Attach a modifier option to an order item
+ */
+export const useAddOrderItemModifier = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addOrderItemModifier>>,
+    TError,
+    { id: number; itemId: number; data: BodyType<OrderItemModifierInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addOrderItemModifier>>,
+  TError,
+  { id: number; itemId: number; data: BodyType<OrderItemModifierInput> },
+  TContext
+> => {
+  return useMutation(getAddOrderItemModifierMutationOptions(options));
+};
+
+/**
  * @summary Active kitchen orders for KDS
  */
 export const getListKitchenOrdersUrl = (params: ListKitchenOrdersParams) => {
@@ -2987,7 +3709,94 @@ export function useListKitchenOrders<
 }
 
 /**
- * @summary Record payment for an order
+ * @summary List all payment legs recorded for an order
+ */
+export const getListOrderPaymentsUrl = (id: number) => {
+  return `/api/orders/${id}/payments`;
+};
+
+export const listOrderPayments = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Payment[]> => {
+  return customFetch<Payment[]>(getListOrderPaymentsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListOrderPaymentsQueryKey = (id: number) => {
+  return [`/api/orders/${id}/payments`] as const;
+};
+
+export const getListOrderPaymentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listOrderPayments>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOrderPayments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListOrderPaymentsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listOrderPayments>>
+  > = ({ signal }) => listOrderPayments(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listOrderPayments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListOrderPaymentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listOrderPayments>>
+>;
+export type ListOrderPaymentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all payment legs recorded for an order
+ */
+
+export function useListOrderPayments<
+  TData = Awaited<ReturnType<typeof listOrderPayments>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOrderPayments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListOrderPaymentsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Record one payment leg for an order (call multiple times for split tender)
  */
 export const getRecordPaymentUrl = (id: number) => {
   return `/api/orders/${id}/payments`;
@@ -3051,7 +3860,7 @@ export type RecordPaymentMutationBody = BodyType<PaymentInput>;
 export type RecordPaymentMutationError = ErrorType<unknown>;
 
 /**
- * @summary Record payment for an order
+ * @summary Record one payment leg for an order (call multiple times for split tender)
  */
 export const useRecordPayment = <
   TError = ErrorType<unknown>,

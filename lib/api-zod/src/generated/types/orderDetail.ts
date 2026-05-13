@@ -7,6 +7,7 @@
  */
 import type { OrderDetailStatus } from "./orderDetailStatus";
 import type { OrderItem } from "./orderItem";
+import type { Payment } from "./payment";
 
 export interface OrderDetail {
   id: number;
@@ -26,4 +27,5 @@ export interface OrderDetail {
   notes?: string | null;
   createdAt: string;
   items: OrderItem[];
+  payments: Payment[];
 }

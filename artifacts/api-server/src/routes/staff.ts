@@ -11,6 +11,20 @@ function stripPin<T extends { pin?: string }>(s: T): Omit<T, "pin"> {
   return rest;
 }
 
+function assertOutletAccess(req: Request, resourceOutletId: number | null): boolean {
+  if (req.session.role === "super_admin") return true;
+  if (resourceOutletId === null) return false;
+  return req.session.outletId === resourceOutletId;
+}
+
+const MANAGER_ASSIGNABLE_ROLES: StaffRole[] = ["manager", "cashier", "kitchen"];
+const ALL_ROLES: StaffRole[] = ["super_admin", "manager", "cashier", "kitchen"];
+
+function isRoleAllowed(requestorRole: string, targetRole: StaffRole): boolean {
+  if (requestorRole === "super_admin") return ALL_ROLES.includes(targetRole);
+  return MANAGER_ASSIGNABLE_ROLES.includes(targetRole);
+}
+
 router.get("/staff", requireAuth, async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
@@ -34,8 +48,20 @@ router.post("/staff", requireRole("super_admin", "manager"), async (req: Request
       role: StaffRole;
       pin: string;
     };
+
+    if (!isRoleAllowed(req.session.role!, role)) {
+      return res.status(403).json({ error: "Insufficient permissions to assign this role" });
+    }
+
+    const targetOutletId = outletId ?? null;
+    if (req.session.role !== "super_admin") {
+      if (targetOutletId !== req.session.outletId) {
+        return res.status(403).json({ error: "Cannot create staff for another outlet" });
+      }
+    }
+
     const [member] = await db.insert(staffTable).values({
-      outletId: outletId ?? null,
+      outletId: targetOutletId,
       name,
       role,
       pin,
@@ -52,6 +78,9 @@ router.get("/staff/:id", requireAuth, async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string);
     const member = await db.query.staffTable.findFirst({ where: eq(staffTable.id, id) });
     if (!member) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, member.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     return res.json(stripPin(member));
   } catch (err) {
     console.error(err);
@@ -68,11 +97,29 @@ router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req: Re
       role?: StaffRole;
       pin?: string;
     };
+
+    const existing = await db.query.staffTable.findFirst({ where: eq(staffTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    if (role !== undefined && !isRoleAllowed(req.session.role!, role)) {
+      return res.status(403).json({ error: "Insufficient permissions to assign this role" });
+    }
+
+    if (outletId !== undefined && req.session.role !== "super_admin") {
+      if ((outletId ?? null) !== req.session.outletId) {
+        return res.status(403).json({ error: "Cannot reassign staff to another outlet" });
+      }
+    }
+
     const updates: Record<string, unknown> = {};
     if (outletId !== undefined) updates.outletId = outletId ?? null;
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
     if (pin !== undefined) updates.pin = pin;
+
     const [member] = await db.update(staffTable).set(updates).where(eq(staffTable.id, id)).returning();
     if (!member) return res.status(404).json({ error: "Not found" });
     return res.json(stripPin(member));
@@ -85,6 +132,11 @@ router.patch("/staff/:id", requireRole("super_admin", "manager"), async (req: Re
 router.delete("/staff/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
+    const existing = await db.query.staffTable.findFirst({ where: eq(staffTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     await db.delete(staffTable).where(eq(staffTable.id, id));
     return res.status(204).send();
   } catch (err) {

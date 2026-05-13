@@ -321,6 +321,129 @@ export const DeleteMenuItemParams = zod.object({
 });
 
 /**
+ * @summary List modifier groups for an outlet
+ */
+export const ListModifierGroupsQueryParams = zod.object({
+  outletId: zod.coerce.number(),
+});
+
+export const ListModifierGroupsResponseItem = zod.object({
+  id: zod.number(),
+  outletId: zod.number(),
+  name: zod.string(),
+  required: zod.boolean(),
+  multiSelect: zod.boolean(),
+  options: zod.array(
+    zod.object({
+      id: zod.number(),
+      groupId: zod.number(),
+      name: zod.string(),
+      priceAdjustment: zod.number(),
+    }),
+  ),
+});
+export const ListModifierGroupsResponse = zod.array(
+  ListModifierGroupsResponseItem,
+);
+
+/**
+ * @summary Create a modifier group
+ */
+export const createModifierGroupBodyRequiredDefault = false;
+export const createModifierGroupBodyMultiSelectDefault = false;
+
+export const CreateModifierGroupBody = zod.object({
+  outletId: zod.number(),
+  name: zod.string(),
+  required: zod.boolean().default(createModifierGroupBodyRequiredDefault),
+  multiSelect: zod.boolean().default(createModifierGroupBodyMultiSelectDefault),
+});
+
+/**
+ * @summary Update a modifier group
+ */
+export const UpdateModifierGroupParams = zod.object({
+  groupId: zod.coerce.number(),
+});
+
+export const UpdateModifierGroupBody = zod.object({
+  name: zod.string().optional(),
+  required: zod.boolean().optional(),
+  multiSelect: zod.boolean().optional(),
+});
+
+export const UpdateModifierGroupResponse = zod.object({
+  id: zod.number(),
+  outletId: zod.number(),
+  name: zod.string(),
+  required: zod.boolean(),
+  multiSelect: zod.boolean(),
+  options: zod.array(
+    zod.object({
+      id: zod.number(),
+      groupId: zod.number(),
+      name: zod.string(),
+      priceAdjustment: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Delete a modifier group
+ */
+export const DeleteModifierGroupParams = zod.object({
+  groupId: zod.coerce.number(),
+});
+
+/**
+ * @summary Add an option to a modifier group
+ */
+export const AddModifierOptionParams = zod.object({
+  groupId: zod.coerce.number(),
+});
+
+export const addModifierOptionBodyPriceAdjustmentDefault = 0;
+
+export const AddModifierOptionBody = zod.object({
+  name: zod.string(),
+  priceAdjustment: zod
+    .number()
+    .default(addModifierOptionBodyPriceAdjustmentDefault),
+});
+
+/**
+ * @summary Update a modifier option
+ */
+export const UpdateModifierOptionParams = zod.object({
+  groupId: zod.coerce.number(),
+  optionId: zod.coerce.number(),
+});
+
+export const updateModifierOptionBodyPriceAdjustmentDefault = 0;
+
+export const UpdateModifierOptionBody = zod.object({
+  name: zod.string(),
+  priceAdjustment: zod
+    .number()
+    .default(updateModifierOptionBodyPriceAdjustmentDefault),
+});
+
+export const UpdateModifierOptionResponse = zod.object({
+  id: zod.number(),
+  groupId: zod.number(),
+  name: zod.string(),
+  priceAdjustment: zod.number(),
+});
+
+/**
+ * @summary Delete a modifier option
+ */
+export const DeleteModifierOptionParams = zod.object({
+  groupId: zod.coerce.number(),
+  optionId: zod.coerce.number(),
+});
+
+/**
  * @summary List tables for an outlet
  */
 export const ListTablesQueryParams = zod.object({
@@ -450,6 +573,26 @@ export const GetOrderResponse = zod.object({
       total: zod.number(),
       notes: zod.string().nullish(),
       kitchenStatus: zod.enum(["pending", "preparing", "ready", "served"]),
+      modifiers: zod
+        .array(
+          zod.object({
+            id: zod.number(),
+            orderItemId: zod.number(),
+            modifierOptionId: zod.number(),
+            name: zod.string(),
+            priceAdjustment: zod.number(),
+          }),
+        )
+        .optional(),
+    }),
+  ),
+  payments: zod.array(
+    zod.object({
+      id: zod.number(),
+      orderId: zod.number(),
+      method: zod.enum(["cash", "card", "split"]),
+      amount: zod.number(),
+      createdAt: zod.string(),
     }),
   ),
 });
@@ -494,6 +637,7 @@ export const AddOrderItemBody = zod.object({
   menuItemId: zod.number(),
   quantity: zod.number(),
   notes: zod.string().optional(),
+  modifierOptionIds: zod.array(zod.number()).optional(),
 });
 
 /**
@@ -522,6 +666,17 @@ export const UpdateOrderItemResponse = zod.object({
   total: zod.number(),
   notes: zod.string().nullish(),
   kitchenStatus: zod.enum(["pending", "preparing", "ready", "served"]),
+  modifiers: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        orderItemId: zod.number(),
+        modifierOptionId: zod.number(),
+        name: zod.string(),
+        priceAdjustment: zod.number(),
+      }),
+    )
+    .optional(),
 });
 
 /**
@@ -530,6 +685,18 @@ export const UpdateOrderItemResponse = zod.object({
 export const RemoveOrderItemParams = zod.object({
   id: zod.coerce.number(),
   itemId: zod.coerce.number(),
+});
+
+/**
+ * @summary Attach a modifier option to an order item
+ */
+export const AddOrderItemModifierParams = zod.object({
+  id: zod.coerce.number(),
+  itemId: zod.coerce.number(),
+});
+
+export const AddOrderItemModifierBody = zod.object({
+  modifierOptionId: zod.number(),
 });
 
 /**
@@ -556,6 +723,17 @@ export const ListKitchenOrdersResponseItem = zod.object({
       total: zod.number(),
       notes: zod.string().nullish(),
       kitchenStatus: zod.enum(["pending", "preparing", "ready", "served"]),
+      modifiers: zod
+        .array(
+          zod.object({
+            id: zod.number(),
+            orderItemId: zod.number(),
+            modifierOptionId: zod.number(),
+            name: zod.string(),
+            priceAdjustment: zod.number(),
+          }),
+        )
+        .optional(),
     }),
   ),
 });
@@ -564,7 +742,25 @@ export const ListKitchenOrdersResponse = zod.array(
 );
 
 /**
- * @summary Record payment for an order
+ * @summary List all payment legs recorded for an order
+ */
+export const ListOrderPaymentsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ListOrderPaymentsResponseItem = zod.object({
+  id: zod.number(),
+  orderId: zod.number(),
+  method: zod.enum(["cash", "card", "split"]),
+  amount: zod.number(),
+  createdAt: zod.string(),
+});
+export const ListOrderPaymentsResponse = zod.array(
+  ListOrderPaymentsResponseItem,
+);
+
+/**
+ * @summary Record one payment leg for an order (call multiple times for split tender)
  */
 export const RecordPaymentParams = zod.object({
   id: zod.coerce.number(),

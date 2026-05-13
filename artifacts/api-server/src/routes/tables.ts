@@ -6,6 +6,11 @@ import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 
 const router = Router();
 
+function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
+  if (req.session.role === "super_admin") return true;
+  return req.session.outletId === resourceOutletId;
+}
+
 router.get("/tables", requireAuth, async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
@@ -29,6 +34,11 @@ router.post("/tables", requireRole("super_admin", "manager"), async (req: Reques
       capacity?: number;
       status?: string;
     };
+
+    if (!assertOutletAccess(req, outletId)) {
+      return res.status(403).json({ error: "Forbidden: cannot create table for another outlet" });
+    }
+
     const [table] = await db.insert(tablesTable).values({
       outletId,
       name,
@@ -46,6 +56,13 @@ router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), as
   try {
     const id = parseInt(req.params.id as string);
     const { name, capacity, status } = req.body as { name?: string; capacity?: number; status?: string };
+
+    const existing = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (capacity !== undefined) updates.capacity = capacity;
@@ -62,6 +79,11 @@ router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), as
 router.delete("/tables/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
+    const existing = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, id) });
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!assertOutletAccess(req, existing.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     await db.delete(tablesTable).where(eq(tablesTable.id, id));
     return res.status(204).send();
   } catch (err) {
