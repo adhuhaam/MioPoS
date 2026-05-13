@@ -14,9 +14,11 @@ import reportsRouter from "./reports";
 import customersRouter from "./customers";
 import storageRouter from "./storage";
 import inventoryRouter from "./inventory";
+import eventsRouter from "./events";
 
 const router: IRouter = Router();
 
+router.use(eventsRouter);
 router.use(healthRouter);
 router.use(publicRouter);
 router.use(authRouter);

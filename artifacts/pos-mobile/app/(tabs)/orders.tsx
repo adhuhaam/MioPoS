@@ -61,7 +61,7 @@ export default function OrdersScreen() {
       status: statusFilter,
       limit: 100,
     },
-    { query: { refetchInterval: 30000 } }
+    { query: { refetchInterval: 5000 } }
   );
   const orders = ordersResponse?.orders;
 

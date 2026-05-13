@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { SidebarLayout } from "./components/layout/sidebar";
+import { useRealtimeSync } from "./hooks/useRealtimeSync";
 
 import Login from "./pages/login";
 import Dashboard from "./pages/dashboard";
@@ -30,6 +31,11 @@ function KitchenRedirect() {
   return null;
 }
 
+function RealtimeSync() {
+  useRealtimeSync();
+  return null;
+}
+
 function PrivateRouter() {
   const { auth } = useAuth();
   const role = auth?.staff.role;
@@ -45,6 +51,7 @@ function PrivateRouter() {
 
   return (
     <SidebarLayout>
+      <RealtimeSync />
       <Switch>
         <Route path="/" component={role === "kitchen" ? KitchenRedirect : Dashboard} />
         {role === "super_admin" && <Route path="/outlets" component={Outlets} />}

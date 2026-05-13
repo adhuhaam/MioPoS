@@ -161,7 +161,7 @@ export default function TablesScreen() {
     {
       query: {
         enabled: !!outlet?.id,
-        refetchInterval: 12000,
+        refetchInterval: 5000,
         queryKey: getListTablesQueryKey({ outletId: outlet?.id ?? 0 }),
       },
     }

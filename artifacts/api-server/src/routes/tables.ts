@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { eq, and, or } from "drizzle-orm";
 import { db, tablesTable, areasTable, ordersTable } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
+import { broadcast } from "../lib/broadcaster";
 
 const router = Router();
 
@@ -75,7 +76,9 @@ router.post("/tables", requireRole("super_admin", "manager"), async (req: Reques
       status: (status as "available" | "occupied" | "bill_requested") ?? "available",
     }).returning();
 
-    return res.status(201).json(await tableWithArea(table));
+    const result = await tableWithArea(table);
+    broadcast(outletId, { type: "tables" });
+    return res.status(201).json(result);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -106,7 +109,9 @@ router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), as
 
     const [table] = await db.update(tablesTable).set(updates).where(eq(tablesTable.id, id)).returning();
     if (!table) return res.status(404).json({ error: "Not found" });
-    return res.json(await tableWithArea(table));
+    const result = await tableWithArea(table);
+    broadcast(table.outletId, { type: "tables" });
+    return res.json(result);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });

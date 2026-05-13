@@ -19,6 +19,7 @@ import {
   type OrderStatus,
 } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
+import { broadcast } from "../lib/broadcaster";
 
 const router = Router();
 
@@ -131,6 +132,7 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
 
     await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, tableId));
 
+    broadcast(outletId, { type: "orders" });
     return res.status(201).json({ ...order, items: [], payments: [], tableName: "" });
   } catch (err) {
     console.error(err);
@@ -222,6 +224,7 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
     const items = await itemsWithModifiers(id);
     const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, id));
     const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, updated.tableId) });
+    broadcast(updated.outletId, { type: "orders" });
     return res.json({ ...updated, items, payments, tableName: table?.name ?? "" });
   } catch (err) {
     console.error(err);
@@ -309,6 +312,7 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
     }).where(eq(ordersTable.id, orderId));
 
     const modifiers = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, item.id));
+    broadcast(order.outletId, { type: "orders" });
     return res.status(201).json({ ...item, modifiers });
   } catch (err) {
     console.error(err);
@@ -370,6 +374,7 @@ router.patch("/orders/:id/items/:itemId", requireRole("super_admin", "manager", 
     }
 
     const modifiers = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
+    broadcast(order.outletId, { type: "orders" });
     return res.json({ ...updated, modifiers });
   } catch (err) {
     console.error(err);
@@ -407,6 +412,7 @@ router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager",
       total: calc.total.toFixed(2),
     }).where(eq(ordersTable.id, orderId));
 
+    broadcast(order.outletId, { type: "orders" });
     return res.status(204).send();
   } catch (err) {
     console.error(err);
@@ -512,6 +518,7 @@ router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashi
       }
     }
 
+    broadcast(order.outletId, { type: "orders" });
     return res.status(201).json(payment);
   } catch (err) {
     console.error(err);

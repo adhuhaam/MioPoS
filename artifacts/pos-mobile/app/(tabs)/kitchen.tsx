@@ -42,7 +42,7 @@ export default function KitchenScreen() {
       outletId: outlet?.id ?? 0,
       ...(statusFilter !== "all" ? { status: statusFilter as any } : {}),
     },
-    { query: { enabled: !!outlet?.id, refetchInterval: 10000 } }
+    { query: { enabled: !!outlet?.id, refetchInterval: 5000 } }
   );
 
   const onRefresh = useCallback(async () => {
