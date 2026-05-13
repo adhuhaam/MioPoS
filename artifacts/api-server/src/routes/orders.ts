@@ -90,6 +90,11 @@ router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
     if (!outlet) return res.status(404).json({ error: "Outlet not found" });
 
+    const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, tableId) });
+    if (!table || table.outletId !== outletId) {
+      return res.status(400).json({ error: "Table does not belong to this outlet" });
+    }
+
     const [order] = await db.insert(ordersTable).values({
       outletId,
       tableId,
@@ -195,6 +200,13 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
     const menuItem = await db.query.menuItemsTable.findFirst({ where: eq(menuItemsTable.id, menuItemId) });
     if (!menuItem) return res.status(404).json({ error: "Menu item not found" });
 
+    // Verify menu item belongs to a category in the same outlet
+    const { menuCategoriesTable } = await import("@workspace/db");
+    const category = await db.query.menuCategoriesTable.findFirst({ where: eq(menuCategoriesTable.id, menuItem.categoryId) });
+    if (!category || category.outletId !== order.outletId) {
+      return res.status(400).json({ error: "Menu item does not belong to this outlet" });
+    }
+
     const qty = quantity ?? 1;
     const unitPrice = parseFloat(menuItem.price);
     const total = unitPrice * qty;
@@ -252,7 +264,7 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
   }
 });
 
-router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res: Response) => {
+router.patch("/orders/:id/items/:itemId", requireRole("super_admin", "manager", "cashier", "kitchen"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const itemId = parseInt(req.params.itemId as string);
@@ -272,15 +284,22 @@ router.patch("/orders/:id/items/:itemId", requireAuth, async (req: Request, res:
     if (!orderItem) return res.status(404).json({ error: "Item not found" });
     if (orderItem.orderId !== orderId) return res.status(403).json({ error: "Item does not belong to this order" });
 
+    const callerRole = req.session.role!;
+    const isKitchenOnly = callerRole === "kitchen";
+
     const updates: Record<string, unknown> = {};
-    if (quantity !== undefined) {
-      const existingMods = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
-      const modAdj = existingMods.reduce((s, m) => s + parseFloat(m.priceAdjustment), 0);
-      updates.quantity = quantity;
-      updates.total = ((parseFloat(orderItem.unitPrice) + modAdj) * quantity).toFixed(2);
+    if (kitchenStatus !== undefined) {
+      updates.kitchenStatus = kitchenStatus;
     }
-    if (notes !== undefined) updates.notes = notes;
-    if (kitchenStatus !== undefined) updates.kitchenStatus = kitchenStatus;
+    if (!isKitchenOnly) {
+      if (quantity !== undefined) {
+        const existingMods = await db.select().from(orderItemModifiersTable).where(eq(orderItemModifiersTable.orderItemId, itemId));
+        const modAdj = existingMods.reduce((s, m) => s + parseFloat(m.priceAdjustment), 0);
+        updates.quantity = quantity;
+        updates.total = ((parseFloat(orderItem.unitPrice) + modAdj) * quantity).toFixed(2);
+      }
+      if (notes !== undefined) updates.notes = notes;
+    }
 
     const [updated] = await db.update(orderItemsTable).set(updates).where(eq(orderItemsTable.id, itemId)).returning();
 

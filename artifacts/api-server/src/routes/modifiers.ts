@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   db,
   modifierGroupsTable,
@@ -218,6 +218,13 @@ router.post("/menu/items/:itemId/modifier-groups", requireRole("super_admin", "m
     if (!group) return res.status(404).json({ error: "Modifier group not found" });
     if (!assertOutletAccess(req, group.outletId)) return res.status(403).json({ error: "Forbidden" });
 
+    // Verify menu item and modifier group belong to the same outlet
+    const { menuCategoriesTable } = await import("@workspace/db");
+    const category = await db.query.menuCategoriesTable.findFirst({ where: eq(menuCategoriesTable.id, menuItem.categoryId) });
+    if (!category || category.outletId !== group.outletId) {
+      return res.status(400).json({ error: "Menu item and modifier group must belong to the same outlet" });
+    }
+
     const [assignment] = await db.insert(menuItemModifierGroupsTable).values({
       menuItemId: itemId,
       modifierGroupId,
@@ -235,10 +242,14 @@ router.delete("/menu/items/:itemId/modifier-groups/:groupId", requireRole("super
     const groupId = parseInt(req.params.groupId as string);
 
     const group = await db.query.modifierGroupsTable.findFirst({ where: eq(modifierGroupsTable.id, groupId) });
-    if (group && !assertOutletAccess(req, group.outletId)) return res.status(403).json({ error: "Forbidden" });
+    if (!group) return res.status(404).json({ error: "Modifier group not found" });
+    if (!assertOutletAccess(req, group.outletId)) return res.status(403).json({ error: "Forbidden" });
 
     await db.delete(menuItemModifierGroupsTable)
-      .where(eq(menuItemModifierGroupsTable.menuItemId, itemId));
+      .where(and(
+        eq(menuItemModifierGroupsTable.menuItemId, itemId),
+        eq(menuItemModifierGroupsTable.modifierGroupId, groupId)
+      ));
 
     return res.status(204).send();
   } catch (err) {
