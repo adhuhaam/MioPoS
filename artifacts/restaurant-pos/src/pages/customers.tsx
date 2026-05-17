@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Search, Pencil, Trash2, CreditCard, Plus, Minus } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
 
 type FormState = { name: string; phone: string; email: string; notes: string };
 
@@ -22,6 +23,7 @@ const emptyForm = (): FormState => ({ name: "", phone: "", email: "", notes: "" 
 
 export default function Customers() {
   const { auth } = useAuth();
+  const { fmt } = useCurrency();
   const outletId = auth!.outlet.id;
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -145,7 +147,7 @@ export default function Customers() {
                 {c.notes && <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{c.notes}</p>}
               </div>
               <div className="text-right flex-shrink-0">
-                <p className="text-sm font-semibold text-primary">${Number(c.creditBalance).toFixed(2)}</p>
+                <p className="text-sm font-semibold text-primary">{fmt(c.creditBalance)}</p>
                 <p className="text-xs text-muted-foreground">credit</p>
               </div>
               <div className="flex items-center gap-1">
@@ -208,7 +210,7 @@ export default function Customers() {
           <div className="space-y-4">
             <div className="bg-muted/40 rounded-lg p-3 text-center">
               <p className="text-sm text-muted-foreground">Current Balance</p>
-              <p className="text-2xl font-bold text-primary">${Number(creditCustomer?.creditBalance ?? 0).toFixed(2)}</p>
+              <p className="text-2xl font-bold text-primary">{fmt(creditCustomer?.creditBalance ?? 0)}</p>
             </div>
             <div className="flex gap-2">
               <button

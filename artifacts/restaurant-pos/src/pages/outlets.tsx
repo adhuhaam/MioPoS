@@ -8,9 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Store, QrCode, Copy, ExternalLink, Check } from "lucide-react";
+import { CurrencySelect } from "@/components/CurrencySelect";
+import { useCurrency } from "@/hooks/useCurrency";
+import { formatMoney } from "@/lib/currency";
 
 type OutletForm = { name: string; address: string; phone: string; taxRate: string; currency: string };
-const empty: OutletForm = { name: "", address: "", phone: "", taxRate: "0", currency: "USD" };
+const empty: OutletForm = { name: "", address: "", phone: "", taxRate: "0", currency: "MVR" };
 
 function QrDialog({ outlet, open, onClose }: { outlet: Outlet; open: boolean; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -73,6 +76,7 @@ function QrDialog({ outlet, open, onClose }: { outlet: Outlet; open: boolean; on
 }
 
 export default function Outlets() {
+  const { defaultCurrency } = useCurrency();
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: outlets, isLoading } = useListOutlets({ query: { queryKey: getListOutletsQueryKey() } });
@@ -88,7 +92,7 @@ export default function Outlets() {
   const field = (k: keyof OutletForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
+  const openCreate = () => { setEditing(null); setForm({ ...empty, currency: defaultCurrency }); setOpen(true); };
   const openEdit = (o: Outlet) => {
     setEditing(o.id);
     setForm({ name: o.name, address: o.address, phone: o.phone, taxRate: String(o.taxRate ?? "0"), currency: o.currency });
@@ -189,7 +193,7 @@ export default function Outlets() {
             <div><Label>Phone</Label><Input value={form.phone} onChange={field("phone")} data-testid="input-outlet-phone" /></div>
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Tax Rate (%)</Label><Input type="number" value={form.taxRate} onChange={field("taxRate")} data-testid="input-outlet-tax" /></div>
-              <div><Label>Currency</Label><Input value={form.currency} onChange={field("currency")} data-testid="input-outlet-currency" /></div>
+              <div><Label>Currency</Label><CurrencySelect value={form.currency || defaultCurrency} onChange={(c) => setForm((f) => ({ ...f, currency: c }))} /><p className="text-xs text-muted-foreground mt-1">{formatMoney(100, form.currency || defaultCurrency)}</p></div>
             </div>
           </div>
           <DialogFooter>

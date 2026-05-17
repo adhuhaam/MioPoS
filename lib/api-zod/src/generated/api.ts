@@ -675,9 +675,13 @@ export const ListOrdersResponse = zod.object({
  */
 export const CreateOrderBody = zod.object({
   outletId: zod.number(),
-  tableId: zod.number(),
+  serviceType: zod.enum(["dine_in", "takeaway", "delivery"]).optional(),
+  tableId: zod.number().optional(),
   staffId: zod.number().optional(),
   notes: zod.string().optional(),
+  customerName: zod.string().optional(),
+  customerPhone: zod.string().optional(),
+  deliveryAddress: zod.string().optional(),
 });
 
 /**

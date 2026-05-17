@@ -11,6 +11,7 @@ import {
   Plus, Pencil, Trash2, Package, TrendingDown, TrendingUp,
   AlertTriangle, ClipboardList, DollarSign
 } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
 
 type InventoryItem = {
   id: number; outletId: number; name: string; unit: string; category: string | null;
@@ -41,6 +42,7 @@ const fmtNum = (v: string | number, dp = 2) =>
 
 export default function Inventory() {
   const { auth } = useAuth();
+  const { fmt } = useCurrency();
   const outletId = auth!.outlet.id;
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -155,7 +157,7 @@ export default function Inventory() {
             {[
               { label: "Total Items", value: String(items.length), icon: Package, color: "text-blue-600 bg-blue-50" },
               { label: "Low Stock Alerts", value: String(lowStockItems.length), icon: AlertTriangle, color: lowStockItems.length > 0 ? "text-amber-600 bg-amber-50" : "text-muted-foreground bg-muted" },
-              { label: "Stock Value", value: `$${fmtNum(totalStockValue)}`, icon: DollarSign, color: "text-green-600 bg-green-50" },
+              { label: "Stock Value", value: fmt(totalStockValue), icon: DollarSign, color: "text-green-600 bg-green-50" },
             ].map(({ label, value, icon: Icon, color }) => (
               <div key={label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
                 <div className={`p-2 rounded-lg ${color.split(" ")[1]}`}><Icon className={`w-5 h-5 ${color.split(" ")[0]}`} /></div>
@@ -220,8 +222,8 @@ export default function Inventory() {
                               <span className="text-muted-foreground ml-1 text-xs">{item.unit}</span>
                             </td>
                             <td className="px-4 py-3 text-right text-muted-foreground">{fmtNum(threshold, 4)}</td>
-                            <td className="px-4 py-3 text-right text-muted-foreground">${fmtNum(item.costPerUnit)}</td>
-                            <td className="px-4 py-3 text-right font-medium">${fmtNum(value)}</td>
+                            <td className="px-4 py-3 text-right text-muted-foreground">{fmt(item.costPerUnit)}</td>
+                            <td className="px-4 py-3 text-right font-medium">{fmt(value)}</td>
                             <td className="px-4 py-3">
                               <div className="flex justify-end gap-1">
                                 <button onClick={() => openEditItem(item)} className="p-1.5 rounded hover:bg-muted"><Pencil className="w-3.5 h-3.5 text-muted-foreground" /></button>
@@ -297,7 +299,7 @@ export default function Inventory() {
               {supplyForm.quantity && supplyForm.costPerUnit && (
                 <div className="bg-muted rounded-lg px-4 py-3 text-sm">
                   <span className="text-muted-foreground">Total delivery cost: </span>
-                  <span className="font-semibold">${fmtNum(parseFloat(supplyForm.quantity) * parseFloat(supplyForm.costPerUnit))}</span>
+                  <span className="font-semibold">{fmt(parseFloat(supplyForm.quantity) * parseFloat(supplyForm.costPerUnit))}</span>
                 </div>
               )}
 
@@ -345,10 +347,10 @@ export default function Inventory() {
                         <span className="text-muted-foreground ml-1 text-xs">{log.unit}</span>
                       </td>
                       <td className="px-4 py-3 text-right text-muted-foreground">
-                        {log.costPerUnit ? `$${fmtNum(log.costPerUnit)}` : "—"}
+                        {log.costPerUnit ? fmt(log.costPerUnit) : "—"}
                       </td>
                       <td className="px-4 py-3 text-right font-medium">
-                        {log.totalCost ? `$${fmtNum(log.totalCost)}` : "—"}
+                        {log.totalCost ? fmt(log.totalCost) : "—"}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{log.note ?? "—"}</td>
                     </tr>
@@ -392,7 +394,7 @@ export default function Inventory() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Cost per Unit ($)</Label>
+                <Label>Cost per unit</Label>
                 <Input className="mt-1.5" type="number" step="0.0001" min="0" value={itemForm.costPerUnit}
                   onChange={e => setItemForm(f => ({ ...f, costPerUnit: e.target.value }))} />
               </div>

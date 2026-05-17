@@ -27,6 +27,12 @@ node_modules
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# local env (secrets)
+.env.local
+
+# Dev-only transfer slip uploads (when GCS is not configured)
+data/local-uploads/
+
 # misc
 /.sass-cache
 /connect.lock
@@ -41,7 +47,8 @@ testem.log
 .DS_Store
 Thumbs.db
 
-.cursor/rules/nx-rules.mdc
+.cursor/
+!.cursor/rules/
 .github/instructions/nx.instructions.md
 
 # Replit

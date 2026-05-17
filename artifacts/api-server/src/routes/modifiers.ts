@@ -258,7 +258,7 @@ router.delete("/menu/items/:itemId/modifier-groups/:groupId", requireRole("super
   }
 });
 
-router.post("/orders/:id/items/:itemId/modifiers", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.post("/orders/:id/items/:itemId/modifiers", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const itemId = parseInt(req.params.itemId as string);

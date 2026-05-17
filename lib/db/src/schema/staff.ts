@@ -3,7 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { outletsTable } from "./outlets";
 
-export const staffRoleEnum = ["super_admin", "manager", "cashier", "kitchen"] as const;
+export const staffRoleEnum = ["super_admin", "manager", "cashier", "waiter", "kitchen"] as const;
 export type StaffRole = typeof staffRoleEnum[number];
 
 export const staffTable = pgTable("staff", {

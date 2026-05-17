@@ -1,8 +1,9 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { eq, and, inArray } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, tablesTable, type OrderStatus } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, type OrderStatus } from "@workspace/db";
 import { requireRole, resolveOutletId } from "../lib/session";
+import { orderDisplayLabel, resolveTableName } from "../lib/order-present";
 
 const router = Router();
 
@@ -22,11 +23,12 @@ async function fetchKitchenOrders(outletId: number | undefined) {
         inArray(orderItemsTable.kitchenStatus, ["pending", "preparing", "ready"])
       )
     );
-    const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, order.tableId) });
+    const physicalTableName = await resolveTableName(order.tableId);
     return {
       id: order.id,
       tableId: order.tableId,
-      tableName: table?.name ?? "",
+      serviceType: order.serviceType ?? "dine_in",
+      tableName: orderDisplayLabel(order, physicalTableName),
       status: order.status,
       createdAt: order.createdAt,
       items,

@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
-import { useGetOutlet, getGetOutletQueryKey, useUpdateOutlet } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useGetOutlet, getGetOutletQueryKey, useUpdateOutlet, useListOutlets } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Save, QrCode, Copy, ExternalLink, Check } from "lucide-react";
+import { Save, QrCode, Copy, ExternalLink, Check, Globe, Building2 } from "lucide-react";
+import { CurrencySelect } from "@/components/CurrencySelect";
+import { formatMoney } from "@/lib/currency";
 
 function QrCodeCard({ outletId }: { outletId: number }) {
   const [copied, setCopied] = useState(false);
@@ -98,15 +100,47 @@ function QrCodeCard({ outletId }: { outletId: number }) {
 }
 
 export default function Settings() {
-  const { auth } = useAuth();
-  const outletId = auth!.outlet.id;
+  const { auth, setAuth } = useAuth();
+  const isSuperAdmin = auth!.staff.role === "super_admin";
+  const sessionOutletId = auth!.outlet.id;
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const { data: outlet } = useGetOutlet(outletId, { query: { queryKey: getGetOutletQueryKey(outletId) } });
+  const { data: outlets } = useListOutlets();
+  const [pickOutletId, setPickOutletId] = useState(sessionOutletId > 0 ? sessionOutletId : 0);
+  const outletId = isSuperAdmin && sessionOutletId === 0 ? pickOutletId : sessionOutletId;
+
+  const { data: systemSettings } = useQuery({
+    queryKey: ["settings", "system"],
+    queryFn: async () => {
+      const res = await fetch("/api/settings/system", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json() as Promise<{ defaultCurrency: string }>;
+    },
+  });
+  const [defaultCurrency, setDefaultCurrency] = useState("MVR");
+  useEffect(() => {
+    if (systemSettings?.defaultCurrency) setDefaultCurrency(systemSettings.defaultCurrency);
+  }, [systemSettings]);
+
+  const { data: outlet } = useGetOutlet(outletId, {
+    query: { queryKey: getGetOutletQueryKey(outletId), enabled: outletId > 0 },
+  });
   const update = useUpdateOutlet();
 
-  const [form, setForm] = useState({ name: "", address: "", phone: "", taxRate: "", currency: "" });
+  const [form, setForm] = useState({
+    name: "",
+    address: "",
+    phone: "",
+    taxRate: "",
+    currency: "",
+    bankName: "",
+    bankAccountName: "",
+    bankAccountNumber: "",
+    bankBranch: "",
+    bankTransferNote: "",
+    businessTin: "",
+  });
 
   useEffect(() => {
     if (outlet) {
@@ -116,11 +150,18 @@ export default function Settings() {
         phone: outlet.phone,
         taxRate: outlet.taxRate?.toString() ?? "0",
         currency: outlet.currency,
+        bankName: outlet.bankName ?? "",
+        bankAccountName: outlet.bankAccountName ?? "",
+        bankAccountNumber: outlet.bankAccountNumber ?? "",
+        bankBranch: outlet.bankBranch ?? "",
+        bankTransferNote: outlet.bankTransferNote ?? "",
       });
     }
   }, [outlet]);
 
   const field = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+  const textField = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   const save = () => {
@@ -133,12 +174,19 @@ export default function Settings() {
           phone: form.phone,
           taxRate: parseFloat(form.taxRate),
           currency: form.currency,
-        },
+          bankName: form.bankName.trim() || null,
+          bankAccountName: form.bankAccountName.trim() || null,
+          bankAccountNumber: form.bankAccountNumber.trim() || null,
+          bankBranch: form.bankBranch.trim() || null,
+          bankTransferNote: form.bankTransferNote.trim() || null,
+          businessTin: form.businessTin.replace(/\D/g, "") || null,
+        } as Parameters<typeof update.mutate>[0]["data"],
       },
       {
-        onSuccess: () => {
+        onSuccess: (updated) => {
           toast({ title: "Settings saved" });
           qc.invalidateQueries({ queryKey: getGetOutletQueryKey(outletId) });
+          if (auth && sessionOutletId === outletId) setAuth({ ...auth, outlet: updated });
         },
         onError: () => toast({ variant: "destructive", title: "Failed to save" }),
       }
@@ -149,13 +197,58 @@ export default function Settings() {
     <div className="p-8 max-w-2xl space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1">Outlet configuration</p>
+        <p className="text-muted-foreground mt-1">Currency and outlet configuration</p>
       </div>
 
-      {/* QR Menu section */}
-      <QrCodeCard outletId={outletId} />
+      {isSuperAdmin && (
+        <div className="border border-border rounded-xl p-6 bg-card space-y-4">
+          <h2 className="font-semibold text-base flex items-center gap-2">
+            <Globe className="w-4 h-4" /> Universal default currency
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Fallback for consolidated views. Each outlet can set its own currency below.
+          </p>
+          <CurrencySelect value={defaultCurrency} onChange={setDefaultCurrency} />
+          <p className="text-xs text-muted-foreground">Preview: {formatMoney(15, defaultCurrency)}</p>
+          <Button
+            size="sm"
+            onClick={async () => {
+              const res = await fetch("/api/settings/system", {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ defaultCurrency }),
+              });
+              if (!res.ok) { toast({ variant: "destructive", title: "Failed to save" }); return; }
+              toast({ title: "Default currency saved" });
+              qc.invalidateQueries({ queryKey: ["settings", "system"] });
+              if (sessionOutletId === 0 && auth) setAuth({ ...auth, outlet: { ...auth.outlet, currency: defaultCurrency } });
+            }}
+          >
+            Save default
+          </Button>
+        </div>
+      )}
 
-      {/* Outlet details */}
+      {isSuperAdmin && sessionOutletId === 0 && (
+        <div>
+          <Label>Edit outlet</Label>
+          <select
+            className="w-full mt-1.5 h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={pickOutletId || ""}
+            onChange={(e) => setPickOutletId(Number(e.target.value))}
+          >
+            <option value="">Select outlet…</option>
+            {(outlets ?? []).map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {outletId > 0 && <QrCodeCard outletId={outletId} />}
+
+      {outletId > 0 && (
       <div className="border border-border rounded-xl p-6 bg-card space-y-6">
         <h2 className="font-semibold text-base">Outlet Details</h2>
         <div className="space-y-4">
@@ -178,8 +271,58 @@ export default function Settings() {
             </div>
             <div>
               <Label>Currency</Label>
-              <Input value={form.currency} onChange={field("currency")} data-testid="input-settings-currency" />
+              <CurrencySelect value={form.currency || "MVR"} onChange={(c) => setForm((f) => ({ ...f, currency: c }))} />
+              <p className="text-xs text-muted-foreground mt-1">Preview: {formatMoney(100, form.currency || "MVR")}</p>
             </div>
+          </div>
+          <div>
+            <Label>Business TIN (13 digits)</Label>
+            <Input
+              value={form.businessTin}
+              onChange={field("businessTin")}
+              placeholder="0000000000000"
+              maxLength={13}
+              data-testid="input-settings-tin"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Used on MIRA GST reports (MIRA 205).</p>
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-6 space-y-4">
+          <h2 className="font-semibold text-base flex items-center gap-2">
+            <Building2 className="w-4 h-4" />
+            Bank transfer (customer QR pay)
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Shown on receipts when customers scan to pay online. Bank transfer with slip upload only on the pay page.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label>Bank name</Label>
+              <Input value={form.bankName} onChange={field("bankName")} data-testid="input-bank-name" />
+            </div>
+            <div>
+              <Label>Branch</Label>
+              <Input value={form.bankBranch} onChange={field("bankBranch")} placeholder="Optional" data-testid="input-bank-branch" />
+            </div>
+            <div>
+              <Label>Account name</Label>
+              <Input value={form.bankAccountName} onChange={field("bankAccountName")} data-testid="input-bank-account-name" />
+            </div>
+            <div>
+              <Label>Account number</Label>
+              <Input value={form.bankAccountNumber} onChange={field("bankAccountNumber")} data-testid="input-bank-account-number" />
+            </div>
+          </div>
+          <div>
+            <Label>Instructions for customers</Label>
+            <textarea
+              value={form.bankTransferNote}
+              onChange={textField("bankTransferNote")}
+              rows={3}
+              className="w-full mt-1.5 text-sm rounded-md border border-input bg-background px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              data-testid="input-bank-transfer-note"
+            />
           </div>
         </div>
 
@@ -189,6 +332,7 @@ export default function Settings() {
           </Button>
         </div>
       </div>
+      )}
     </div>
   );
 }

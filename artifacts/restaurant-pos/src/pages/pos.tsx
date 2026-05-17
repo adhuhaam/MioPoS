@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "wouter";
 import {
   useListCategories, getListCategoriesQueryKey,
   useListMenuItems, getListMenuItemsQueryKey,
@@ -9,8 +8,8 @@ import {
   useListCustomers,
   listOrders, listItemModifierGroups, getListItemModifierGroupsQueryKey,
 } from "@workspace/api-client-react";
-import type { MenuItem, OrderDetail, OrderItem, ModifierGroup, Customer } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import type { MenuItem, OrderDetail, OrderItem, ModifierGroup, Customer, Order } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
 import { useUpload } from "@workspace/object-storage-web";
 import { Button } from "@/components/ui/button";
@@ -19,22 +18,37 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ShoppingCart, X, Send, Receipt, Banknote, Building2, CreditCard, Upload, CheckCircle2, Timer } from "lucide-react";
+import { ShoppingCart, X, Send, Receipt, Banknote, Building2, CreditCard, Upload, CheckCircle2, Timer, UtensilsCrossed, ShoppingBag, Truck, MapPin, Printer } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
+import { printOrderReceipt } from "../lib/printReceipt";
+import { buildOrderPayUrl, fetchOrderPayLink, fetchPayQrDataUrl } from "../lib/pay-url";
+import type { ServiceType } from "@workspace/api-client-react";
 
 type PayMode = "cash" | "bank_transfer" | "credit";
 
+const SERVICE_TABS: { id: ServiceType; label: string; icon: typeof UtensilsCrossed; description: string }[] = [
+  { id: "dine_in", label: "Dine in", icon: UtensilsCrossed, description: "Serve at a table" },
+  { id: "takeaway", label: "Takeaway", icon: ShoppingBag, description: "Pickup order" },
+  { id: "delivery", label: "Delivery", icon: Truck, description: "Deliver to customer" },
+];
+
 export default function POS() {
   const { auth } = useAuth();
+  const { fmt } = useCurrency();
   const outletId = auth!.outlet.id;
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const [search] = useLocation();
-  const params = new URLSearchParams(search.includes("?") ? search.split("?")[1] : "");
+  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const urlTableId = params.get("tableId") ? parseInt(params.get("tableId")!) : null;
+  const urlOrderId = params.get("orderId") ? parseInt(params.get("orderId")!) : null;
 
   const [selectedTableId, setSelectedTableId] = useState<number | null>(urlTableId);
-  const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
+  const [activeOrderId, setActiveOrderId] = useState<number | null>(urlOrderId);
+  const [setupTab, setSetupTab] = useState<ServiceType>(urlTableId ? "dine_in" : "dine_in");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
   const [activeCatId, setActiveCatId] = useState<number | null>(null);
   const [discountPercent, setDiscountPercent] = useState("");
   const [orderNote, setOrderNote] = useState("");
@@ -60,7 +74,10 @@ export default function POS() {
 
   const { data: categories } = useListCategories({ outletId }, { query: { queryKey: getListCategoriesQueryKey({ outletId }) } });
   const { data: menuItems } = useListMenuItems({ outletId }, { query: { queryKey: getListMenuItemsQueryKey({ outletId }) } });
-  const { data: tables } = useListTables({ outletId }, { query: { queryKey: getListTablesQueryKey({ outletId }) } });
+  const { data: tables } = useListTables(
+    { outletId },
+    { query: { queryKey: getListTablesQueryKey({ outletId }) } },
+  );
   const { data: customers = [] } = useListCustomers(
     { outletId, search: customerSearch || undefined },
     { query: { enabled: payMode === "credit" } }
@@ -96,9 +113,26 @@ export default function POS() {
   const timeFee = Number((typedOrder as any)?.timeFee ?? 0);
   const total = Number(typedOrder?.total ?? 0);
 
-  // Live timer for timed-area tables
-  const selectedTable = tables?.find(t => t.id === selectedTableId) as any;
-  const isTimedArea = selectedTable?.area?.type === "timed";
+  const orderServiceType = (typedOrder?.serviceType ?? setupTab) as ServiceType;
+  const isDineInOrder = orderServiceType === "dine_in";
+
+  const { data: openOffPremiseOrders } = useQuery({
+    queryKey: ["orders", "open", setupTab, outletId],
+    enabled: !activeOrderId && (setupTab === "takeaway" || setupTab === "delivery"),
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/orders?outletId=${outletId}&status=open&serviceType=${setupTab}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error("Failed to load open orders");
+      const json = await res.json();
+      return (json.orders ?? []) as Order[];
+    },
+  });
+
+  // Live timer for timed-area tables (dine-in only)
+  const selectedTable = isDineInOrder ? (tables?.find(t => t.id === selectedTableId) as any) : null;
+  const isTimedArea = isDineInOrder && selectedTable?.area?.type === "timed";
   const [elapsedMins, setElapsedMins] = useState(0);
   useEffect(() => {
     if (!isTimedArea || !(typedOrder as any)?.tableOpenedAt) { setElapsedMins(0); return; }
@@ -111,33 +145,105 @@ export default function POS() {
     return () => clearInterval(id);
   }, [isTimedArea, (typedOrder as any)?.tableOpenedAt]);
 
-  // Auto-select first table from URL param
   useEffect(() => {
-    if (urlTableId && !activeOrderId) handleTableSelect(urlTableId.toString());
+    if (urlTableId && !activeOrderId) handleTableSelect(urlTableId);
   }, [urlTableId]);
+
+  useEffect(() => {
+    if (!urlOrderId || activeOrderId !== urlOrderId) return;
+    if (!typedOrder || typedOrder.id !== urlOrderId) return;
+    if (typedOrder.serviceType) setSetupTab(typedOrder.serviceType);
+    if (typedOrder.tableId) setSelectedTableId(typedOrder.tableId);
+    if (typedOrder.customerName) setCustomerName(typedOrder.customerName);
+    if (typedOrder.customerPhone) setCustomerPhone(typedOrder.customerPhone);
+    if (typedOrder.deliveryAddress) setDeliveryAddress(typedOrder.deliveryAddress);
+  }, [urlOrderId, typedOrder?.id]);
+
+  useEffect(() => {
+    if (setupTab !== "dine_in") setSelectedTableId(null);
+  }, [setupTab]);
 
   // Sync order note from loaded order
   useEffect(() => {
     setOrderNote(typedOrder?.notes ?? "");
   }, [typedOrder?.id]);
 
-  const handleTableSelect = async (tableIdStr: string) => {
-    const tableId = parseInt(tableIdStr);
-    setSelectedTableId(tableId);
+  const clearOrderSession = () => {
+    setActiveOrderId(null);
+    setSelectedTableId(null);
+    setCustomerName("");
+    setCustomerPhone("");
+    setDeliveryAddress("");
+    setPaidLegs([]);
+    setDiscountPercent("");
+    setOrderNote("");
+  };
 
-    // Find existing open order for this table
+  const openOrder = async (orderId: number, tableId?: number | null, service?: ServiceType) => {
+    setActiveOrderId(orderId);
+    if (service) setSetupTab(service);
+    if (tableId) setSelectedTableId(tableId);
+    else setSelectedTableId(null);
+  };
+
+  const resumeOffPremiseOrder = async (o: Order) => {
+    setCustomerName(o.customerName ?? "");
+    setCustomerPhone(o.customerPhone ?? "");
+    setDeliveryAddress(o.deliveryAddress ?? "");
+    await openOrder(o.id, null, o.serviceType);
+  };
+
+  const handleTableSelect = async (tableId: number) => {
+    setSelectedTableId(tableId);
+    setSetupTab("dine_in");
     try {
       const existing = await listOrders({ outletId, tableId, status: "open" });
-      const open = Array.isArray(existing) ? existing[0] : (existing as { data?: unknown[] })?.data?.[0];
+      const list = (existing as { orders?: { id: number }[] })?.orders ?? (Array.isArray(existing) ? existing : []);
+      const open = list[0];
       if (open && typeof open === "object" && "id" in open) {
-        setActiveOrderId((open as { id: number }).id);
+        await openOrder((open as { id: number }).id, tableId);
       } else {
-        const newOrder = await createOrder.mutateAsync({ data: { outletId, tableId, staffId: auth!.staff.id } });
-        setActiveOrderId((newOrder as { id: number }).id);
+        const newOrder = await createOrder.mutateAsync({
+          data: { outletId, serviceType: "dine_in", tableId, staffId: auth!.staff.id },
+        });
+        await openOrder((newOrder as { id: number }).id, tableId);
         qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
       }
     } catch {
       toast({ variant: "destructive", title: "Failed to open order" });
+    }
+  };
+
+  const handleStartOffPremise = async () => {
+    if (setupTab === "delivery" && !deliveryAddress.trim()) {
+      toast({ variant: "destructive", title: "Delivery address is required" });
+      return;
+    }
+    try {
+      const endpoint = setupTab === "delivery" ? "/api/orders/delivery" : "/api/orders/takeaway";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outletId,
+          staffId: auth!.staff.id,
+          ...(customerName.trim() ? { customerName: customerName.trim() } : {}),
+          ...(customerPhone.trim() ? { customerPhone: customerPhone.trim() } : {}),
+          ...(setupTab === "delivery" ? { deliveryAddress: deliveryAddress.trim() } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error ?? "Failed to start order");
+      }
+      const newOrder = await res.json();
+      setSelectedTableId(null);
+      await openOrder(newOrder.id, null, setupTab);
+      qc.invalidateQueries({ queryKey: ["orders", "open", setupTab, outletId] });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to start order";
+      toast({ variant: "destructive", title: msg });
     }
   };
 
@@ -231,7 +337,7 @@ export default function POS() {
       return;
     }
     if (payMode === "credit" && selectedCustomer && Number(selectedCustomer.creditBalance) < amount) {
-      toast({ variant: "destructive", title: `Insufficient credit (balance: $${Number(selectedCustomer.creditBalance).toFixed(2)})` });
+      toast({ variant: "destructive", title: `Insufficient credit (balance: ${fmt(selectedCustomer.creditBalance)})` });
       return;
     }
 
@@ -253,12 +359,10 @@ export default function POS() {
           if (newTotal >= total) {
             toast({ title: "Payment complete. Order closed." });
             setPayDialog(false);
-            setActiveOrderId(null);
-            setSelectedTableId(null);
-            setPaidLegs([]);
+            clearOrderSession();
             qc.invalidateQueries({ queryKey: getListTablesQueryKey({ outletId }) });
           } else {
-            toast({ title: `$${amount.toFixed(2)} recorded. Remaining: $${(total - newTotal).toFixed(2)}` });
+            toast({ title: `${fmt(amount)} recorded. Remaining: ${fmt(total - newTotal)}` });
             setPayAmount(String((total - newTotal).toFixed(2)));
             setSlipImagePath(null);
             setSlipFileName(null);
@@ -274,7 +378,46 @@ export default function POS() {
     );
   };
 
-  const availTables = tables?.filter(t => t.status === "available") ?? [];
+  const handlePrintReceipt = async () => {
+    if (!typedOrder || !activeOrderId) return;
+    try {
+      const paidSoFar = (typedOrder.payments ?? []).reduce((s, p) => s + Number(p.amount), 0);
+      let amountDue = Math.max(0, total - paidSoFar);
+      let payUrl: string | null = null;
+      let payQrDataUrl: string | null = null;
+
+      try {
+        const link = await fetchOrderPayLink(activeOrderId);
+        if (link) {
+          amountDue = link.amountDue;
+          payUrl = buildOrderPayUrl(link.orderId, link.payToken);
+          payQrDataUrl = await fetchPayQrDataUrl(payUrl);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (msg.includes("bank account")) {
+          toast({ variant: "destructive", title: msg });
+        }
+      }
+
+      const ok = await printOrderReceipt(typedOrder, {
+        outletName: auth!.outlet.name,
+        outletAddress: auth!.outlet.address,
+        outletPhone: auth!.outlet.phone,
+        staffName: auth!.staff.name,
+        currency: auth!.outlet.currency,
+        fmt,
+        payUrl,
+        amountDue,
+        payQrDataUrl,
+      });
+      if (!ok) {
+        toast({ variant: "destructive", title: "Allow pop-ups to print receipts" });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Failed to print receipt" });
+    }
+  };
 
   const switchPayMode = (m: PayMode) => {
     setPayMode(m);
@@ -288,22 +431,71 @@ export default function POS() {
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col overflow-hidden">
-        {!selectedTableId ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6">
-            <ShoppingCart className="w-16 h-16 text-muted-foreground/30" />
-            <div className="text-center">
-              <h2 className="text-xl font-semibold">Select a Table</h2>
-              <p className="text-muted-foreground text-sm mt-1">Choose a table to start a new order</p>
-            </div>
-            <div className="w-full max-w-xs">
-              <Select onValueChange={handleTableSelect}>
-                <SelectTrigger data-testid="select-table"><SelectValue placeholder="Select table..." /></SelectTrigger>
-                <SelectContent>
-                  {availTables.map(t => (
-                    <SelectItem key={t.id} value={t.id.toString()} data-testid={`option-table-${t.id}`}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+        {!activeOrderId ? (
+          <div className="flex-1 overflow-auto p-6">
+            <div className="max-w-3xl mx-auto space-y-6">
+              <div className="text-center">
+                <ShoppingCart className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+                <h2 className="text-xl font-semibold">New order</h2>
+                <p className="text-muted-foreground text-sm mt-1">How is this order being served?</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {SERVICE_TABS.map(({ id, label, icon: Icon, description }) => (
+                  <button key={id} type="button" data-testid={`button-service-${id}`} onClick={() => setSetupTab(id)}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 text-center transition-all ${setupTab === id ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40 hover:bg-muted/40"}`}>
+                    <Icon className={`w-7 h-7 ${setupTab === id ? "text-primary" : "text-muted-foreground"}`} />
+                    <span className="font-semibold text-sm">{label}</span>
+                    <span className="text-xs text-muted-foreground leading-tight">{description}</span>
+                  </button>
+                ))}
+              </div>
+              {setupTab === "dine_in" && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-muted-foreground">Select a table</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {(tables ?? []).map((t) => (
+                      <button key={t.id} type="button" data-testid={`button-table-${t.id}`} onClick={() => handleTableSelect(t.id)} disabled={createOrder.isPending}
+                        className={`rounded-xl border-2 p-3 text-left transition-all active:scale-[0.98] ${t.status === "available" ? "border-green-300 bg-green-50/80 dark:bg-green-950/30" : t.status === "occupied" ? "border-amber-300 bg-amber-50/80 dark:bg-amber-950/30" : "border-red-300 bg-red-50/80 dark:bg-red-950/30"}`}>
+                        <p className="font-semibold">{t.name}</p>
+                        <p className="text-xs text-muted-foreground capitalize mt-0.5">{t.status === "bill_requested" ? "Bill requested" : t.status}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {!tables?.length && <p className="text-sm text-muted-foreground text-center py-6">No tables configured for this outlet.</p>}
+                </div>
+              )}
+              {(setupTab === "takeaway" || setupTab === "delivery") && (
+                <div className="space-y-6 max-w-lg mx-auto">
+                  {(openOffPremiseOrders?.length ?? 0) > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Open {setupTab} orders (no table)</p>
+                      {openOffPremiseOrders!.map((o) => (
+                        <button key={o.id} type="button" onClick={() => resumeOffPremiseOrder(o)}
+                          className="w-full text-left border border-border rounded-lg p-3 bg-card hover:border-primary"
+                          data-testid={`button-resume-order-${o.id}`}>
+                          <span className="font-semibold text-sm">#{o.id} · {o.tableName}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                <div className="border border-border rounded-xl p-5 bg-card space-y-4">
+                  <p className="text-sm font-medium">New {setupTab} order</p>
+                  <p className="text-xs text-muted-foreground">Separate from tables — creates its own order.</p>
+                  <div><Label>Customer name</Label><Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Optional" data-testid="input-customer-name" /></div>
+                  <div><Label>Phone</Label><Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Optional" data-testid="input-customer-phone" /></div>
+                  {setupTab === "delivery" && (
+                    <div>
+                      <Label className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Delivery address</Label>
+                      <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Street, building, area…" rows={3}
+                        className="w-full mt-1.5 text-sm rounded-md border border-input bg-background px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring" data-testid="input-delivery-address" />
+                    </div>
+                  )}
+                  <Button className="w-full" onClick={handleStartOffPremise} disabled={createOrder.isPending} data-testid="button-start-order">
+                    Create new {setupTab} order
+                  </Button>
+                </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -325,7 +517,7 @@ export default function POS() {
                     className="border border-border rounded-xl p-4 text-left hover:border-primary hover:bg-primary/5 transition-all active:scale-95 bg-card">
                     <p className="font-semibold text-sm leading-tight">{item.name}</p>
                     {item.description && <p className="text-xs text-muted-foreground mt-1 truncate">{item.description}</p>}
-                    <p className="font-bold text-primary mt-2">${Number(item.price).toFixed(2)}</p>
+                    <p className="font-bold text-primary mt-2">{fmt(item.price)}</p>
                   </button>
                 ))}
                 {!catItems.length && <div className="col-span-4 text-center text-muted-foreground py-8 text-sm">No items in this category</div>}
@@ -337,14 +529,39 @@ export default function POS() {
 
       <aside className="w-80 border-l border-border flex flex-col bg-card">
         <div className="p-4 border-b border-border">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold">Current Order</h2>
-            {selectedTableId && (
-              <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
-                {tables?.find(t => t.id === selectedTableId)?.name ?? "Table"}
+            {activeOrderId && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium max-w-[10rem] truncate ${
+                orderServiceType === "takeaway"
+                  ? "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300"
+                  : orderServiceType === "delivery"
+                    ? "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+              }`}>
+                {typedOrder?.tableName ?? "Order"}
               </span>
             )}
           </div>
+          {typedOrder?.serviceType === "delivery" && typedOrder.deliveryAddress && (
+            <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1">
+              <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              {typedOrder.deliveryAddress}
+            </p>
+          )}
+          {activeOrderId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-7 text-xs w-full"
+              onClick={() => {
+                if (items.length > 0 && !confirm("Leave this order open and start a new one?")) return;
+                clearOrderSession();
+              }}
+            >
+              Start another order
+            </Button>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto p-3 space-y-2">
@@ -352,14 +569,14 @@ export default function POS() {
             <div key={item.id} data-testid={`order-item-${item.id}`} className="flex items-start gap-2 bg-muted/30 rounded-lg p-2.5">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{item.menuItemName}</p>
-                <p className="text-xs text-muted-foreground">${Number(item.unitPrice).toFixed(2)} × {item.quantity}</p>
+                <p className="text-xs text-muted-foreground">{fmt(item.unitPrice)} × {item.quantity}</p>
                 {item.modifiers && item.modifiers.length > 0 && (
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {item.modifiers.map(m => m.name).join(", ")}
                   </p>
                 )}
               </div>
-              <p className="text-sm font-semibold">${Number(item.total).toFixed(2)}</p>
+              <p className="text-sm font-semibold">{fmt(item.total)}</p>
               <button onClick={() => handleRemoveItem(item.id)} data-testid={`button-remove-item-${item.id}`} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -419,7 +636,7 @@ export default function POS() {
                   : `${Math.floor(elapsedMins / 60)}h ${elapsedMins % 60}m elapsed`}
                 {selectedTable?.area?.hourlyRate && (
                   <span className="text-muted-foreground ml-1">
-                    · est. ${((elapsedMins / 60) * Number(selectedTable.area.hourlyRate)).toFixed(2)}
+                    · est. {fmt((elapsedMins / 60) * Number(selectedTable.area.hourlyRate))}
                   </span>
                 )}
               </span>
@@ -427,21 +644,24 @@ export default function POS() {
           )}
 
           <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-            {discount > 0 && <div className="flex justify-between text-green-600 dark:text-green-400"><span>Discount</span><span>-${discount.toFixed(2)}</span></div>}
-            <div className="flex justify-between text-muted-foreground"><span>Tax</span><span>${tax.toFixed(2)}</span></div>
+            <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+            {discount > 0 && <div className="flex justify-between text-green-600 dark:text-green-400"><span>Discount</span><span>-{fmt(discount)}</span></div>}
+            <div className="flex justify-between text-muted-foreground"><span>Tax</span><span>{fmt(tax)}</span></div>
             {timeFee > 0 && (
               <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
                 <span className="flex items-center gap-1"><Timer className="w-3 h-3" />Room charge</span>
-                <span>${timeFee.toFixed(2)}</span>
+                <span>{fmt(timeFee)}</span>
               </div>
             )}
-            <div className="flex justify-between font-bold text-base pt-1 border-t border-border"><span>Total</span><span>${total.toFixed(2)}</span></div>
+            <div className="flex justify-between font-bold text-base pt-1 border-t border-border"><span>Total</span><span>{fmt(total)}</span></div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Button variant="outline" onClick={handleSendToKitchen} disabled={!activeOrderId || !items.length} className="text-sm" data-testid="button-send-kitchen">
               <Send className="w-3.5 h-3.5 mr-1" />Kitchen
+            </Button>
+            <Button variant="outline" onClick={handlePrintReceipt} disabled={!activeOrderId || !items.length} className="text-sm" data-testid="button-print-receipt">
+              <Printer className="w-3.5 h-3.5 mr-1" />Print
             </Button>
             <Button onClick={handleGenerateBill} disabled={!activeOrderId || !items.length || updateOrder.isPending} className="text-sm" data-testid="button-generate-bill">
               <Receipt className="w-3.5 h-3.5 mr-1" />Bill
@@ -477,7 +697,7 @@ export default function POS() {
                         data-testid={`option-select-${opt.id}`}>
                         <span>{opt.name}</span>
                         {Number(opt.priceAdjustment) > 0 && (
-                          <span className="text-xs text-muted-foreground">+${Number(opt.priceAdjustment).toFixed(2)}</span>
+                          <span className="text-xs text-muted-foreground">+{fmt(opt.priceAdjustment)}</span>
                         )}
                       </button>
                     );
@@ -501,7 +721,7 @@ export default function POS() {
             {/* Total summary */}
             <div className="flex justify-between items-baseline">
               <Label>Total Due</Label>
-              <p className="text-2xl font-bold">${total.toFixed(2)}</p>
+              <p className="text-2xl font-bold">{fmt(total)}</p>
             </div>
 
             {/* Paid legs so far */}
@@ -510,12 +730,12 @@ export default function POS() {
                 {paidLegs.map((leg, i) => (
                   <div key={i} className="flex justify-between text-muted-foreground">
                     <span>{leg.label ?? leg.method}</span>
-                    <span>${leg.amount.toFixed(2)}</span>
+                    <span>{fmt(leg.amount)}</span>
                   </div>
                 ))}
                 <div className="flex justify-between font-semibold text-primary border-t border-border pt-1 mt-1">
                   <span>Remaining</span>
-                  <span>${remainingBalance.toFixed(2)}</span>
+                  <span>{fmt(remainingBalance)}</span>
                 </div>
               </div>
             )}
@@ -599,7 +819,7 @@ export default function POS() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold">{selectedCustomer.name}</p>
-                      <p className="text-xs text-muted-foreground">Balance: ${Number(selectedCustomer.creditBalance).toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground">Balance: {fmt(selectedCustomer.creditBalance)}</p>
                     </div>
                     <button className="text-xs underline text-muted-foreground" onClick={() => setSelectedCustomer(null)}>
                       Change
@@ -623,7 +843,7 @@ export default function POS() {
                               <p className="font-medium truncate">{c.name}</p>
                               <p className="text-xs text-muted-foreground">{c.phone ?? ""}</p>
                             </div>
-                            <span className="text-xs font-semibold text-primary">${Number(c.creditBalance).toFixed(2)}</span>
+                            <span className="text-xs font-semibold text-primary">{fmt(c.creditBalance)}</span>
                           </button>
                         ))}
                       </div>

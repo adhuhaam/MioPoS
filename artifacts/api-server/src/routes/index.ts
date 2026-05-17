@@ -15,6 +15,8 @@ import customersRouter from "./customers";
 import storageRouter from "./storage";
 import inventoryRouter from "./inventory";
 import eventsRouter from "./events";
+import settingsRouter from "./settings";
+import purchasesRouter from "./purchases";
 
 const router: IRouter = Router();
 
@@ -34,5 +36,7 @@ router.use(reportsRouter);
 router.use(customersRouter);
 router.use(storageRouter);
 router.use(inventoryRouter);
+router.use(purchasesRouter);
+router.use(settingsRouter);
 
 export default router;

@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
 
 type RecipeLine = { id: number; inventoryItemId: number; inventoryItemName: string; unit: string; quantity: string };
 type InvItem = { id: number; name: string; unit: string };
@@ -37,6 +38,7 @@ function getListModifierGroupsQueryKey(params: { outletId: number }) {
 
 export default function Menu() {
   const { auth } = useAuth();
+  const { fmt } = useCurrency();
   const outletId = auth!.outlet.id;
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -353,7 +355,7 @@ export default function Menu() {
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm">${Number(item.price).toFixed(2)}</span>
+                      <span className="font-bold text-sm">{fmt(item.price)}</span>
                       <Switch checked={item.available} onCheckedChange={() => toggleAvailable(item)} data-testid={`switch-item-available-${item.id}`} />
                     </div>
                   </div>
@@ -405,7 +407,7 @@ export default function Menu() {
                           <span>{opt.name}</span>
                           <div className="flex items-center gap-2">
                             <span className="text-muted-foreground text-xs">
-                              {Number(opt.priceAdjustment) === 0 ? "No charge" : `+$${Number(opt.priceAdjustment).toFixed(2)}`}
+                              {Number(opt.priceAdjustment) === 0 ? "No charge" : `+${fmt(opt.priceAdjustment)}`}
                             </span>
                             <button onClick={() => removeOption(group.id, opt.id)} className="p-0.5 rounded hover:bg-muted text-destructive">
                               <Trash2 className="w-3 h-3" />
@@ -527,7 +529,7 @@ export default function Menu() {
           <DialogHeader><DialogTitle>Add Modifier Option</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>Option Name</Label><Input value={optionForm.name} onChange={e => setOptionForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Large, Extra Cheese" data-testid="input-option-name" /></div>
-            <div><Label>Price Adjustment ($)</Label><Input type="number" step="0.01" value={optionForm.priceAdjustment} onChange={e => setOptionForm(f => ({ ...f, priceAdjustment: e.target.value }))} placeholder="0.00" data-testid="input-option-price" /></div>
+            <div><Label>Price adjustment</Label><Input type="number" step="0.01" value={optionForm.priceAdjustment} onChange={e => setOptionForm(f => ({ ...f, priceAdjustment: e.target.value }))} placeholder="0.00" data-testid="input-option-price" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOptionDialogGroupId(null)}>Cancel</Button>

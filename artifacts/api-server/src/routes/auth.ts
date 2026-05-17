@@ -2,17 +2,20 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db, staffTable, outletsTable } from "@workspace/db";
+import { getDefaultCurrency } from "../lib/app-settings";
 
 const router = Router();
 
-const SUPER_ADMIN_OUTLET = {
-  id: 0,
-  name: "All Outlets",
-  address: "",
-  phone: "",
-  currency: "USD",
-  taxRate: 0,
-};
+async function superAdminOutlet() {
+  return {
+    id: 0,
+    name: "All Outlets",
+    address: "",
+    phone: "",
+    currency: await getDefaultCurrency(),
+    taxRate: 0,
+  };
+}
 
 function stripPin<T extends { pin?: string }>(staff: T): Omit<T, "pin"> {
   const { pin: _pin, ...rest } = staff;
@@ -44,7 +47,7 @@ router.post("/auth/login", async (req, res) => {
       req.session.staffId = staff.id;
       req.session.outletId = null;
       req.session.role = staff.role;
-      return res.json({ staff: stripPin(staff), outlet: SUPER_ADMIN_OUTLET });
+      return res.json({ staff: stripPin(staff), outlet: await superAdminOutlet() });
     }
 
     // ── Outlet staff login ────────────────────────────────────────────────
@@ -93,7 +96,7 @@ router.get("/auth/me", async (req, res) => {
 
     // Super admin session has no outlet
     if (!req.session.outletId) {
-      return res.json({ staff: stripPin(staff), outlet: SUPER_ADMIN_OUTLET });
+      return res.json({ staff: stripPin(staff), outlet: await superAdminOutlet() });
     }
 
     const outlet = await db.query.outletsTable.findFirst({

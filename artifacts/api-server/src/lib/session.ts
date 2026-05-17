@@ -18,6 +18,7 @@ export const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     secure: isProd,
+    // Web local dev: lax (Vite proxies /api). Expo uses manual Cookie header from custom-fetch.
     sameSite: "lax",
     maxAge: 8 * 60 * 60 * 1000,
   },

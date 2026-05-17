@@ -11,7 +11,7 @@ function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
   return req.session.outletId === resourceOutletId;
 }
 
-router.get("/areas", requireAuth, async (req: Request, res: Response) => {
+router.get("/areas", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const outletId = resolveOutletId(req, requestedOutletId);

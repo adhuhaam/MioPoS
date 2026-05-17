@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq, and, desc, sum, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sum, gte, lte, isNull } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
   db,
@@ -17,11 +17,20 @@ import {
   inventoryItemsTable,
   menuItemRecipesTable,
   type OrderStatus,
+  type ServiceType,
 } from "@workspace/db";
 import { requireAuth, requireRole, resolveOutletId } from "../lib/session";
 import { broadcast } from "../lib/broadcaster";
+import { orderDisplayLabel, presentOrder, resolveTableName, setTableStatus } from "../lib/order-present";
+import { generatePayToken } from "../lib/pay-token";
+import { ensureOrderPayLink } from "../lib/ensure-pay-link";
+import { upsertCustomerFromTakeaway } from "../lib/upsert-customer-from-takeaway";
 
 const router = Router();
+
+function isOffPremiseType(t: string): t is "takeaway" | "delivery" {
+  return t === "takeaway" || t === "delivery";
+}
 
 function recalcOrder(
   items: Array<{ unitPrice: string; quantity: number; total: string }>,
@@ -59,11 +68,106 @@ function calcTimeFee(openedAt: Date | null, hourlyRate: string | null): number {
   return Math.round(elapsedHours * parseFloat(hourlyRate) * 100) / 100;
 }
 
+/** Takeaway & delivery only — never touches tables. */
+async function createOffPremiseOrder(
+  req: Request,
+  res: Response,
+  serviceType: "takeaway" | "delivery",
+) {
+  const {
+    outletId,
+    staffId,
+    notes,
+    customerName,
+    customerPhone,
+    deliveryAddress,
+  } = req.body as {
+    outletId: number;
+    staffId?: number;
+    notes?: string;
+    customerName?: string;
+    customerPhone?: string;
+    deliveryAddress?: string;
+  };
+
+  const oid = Number(outletId);
+  if (!Number.isFinite(oid) || oid <= 0) {
+    return res.status(400).json({ error: "Invalid outletId" });
+  }
+  if (!assertOutletAccess(req, oid)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, oid) });
+  if (!outlet) return res.status(404).json({ error: "Outlet not found" });
+
+  if (serviceType === "delivery" && !deliveryAddress?.trim()) {
+    return res.status(400).json({ error: "deliveryAddress is required for delivery orders" });
+  }
+
+  const trimmedName = customerName?.trim() || null;
+  const trimmedPhone = customerPhone?.trim() || null;
+
+  const [order] = await db.insert(ordersTable).values({
+    outletId: oid,
+    serviceType,
+    tableId: null,
+    staffId: staffId ?? null,
+    notes: notes ?? null,
+    customerName: trimmedName,
+    customerPhone: trimmedPhone,
+    deliveryAddress: serviceType === "delivery" ? deliveryAddress?.trim() || null : null,
+    status: "open",
+    tableOpenedAt: null,
+  }).returning();
+
+  if (serviceType === "takeaway") {
+    upsertCustomerFromTakeaway({
+      outletId: oid,
+      customerName: trimmedName,
+      customerPhone: trimmedPhone,
+    }).catch((err) => console.error("takeaway customer upsert failed:", err));
+  }
+
+  broadcast(oid, { type: "orders" });
+  const presented = await presentOrder(order);
+  return res.status(201).json({ ...presented, items: [], payments: [] });
+}
+
+function orderDbErrorMessage(err: unknown): string {
+  const pg = err as { code?: string; column?: string };
+  if (pg.code === "42703") {
+    return "Database schema is out of date. Run: pnpm --filter @workspace/db run push";
+  }
+  if (pg.code === "23502" && pg.column) {
+    return `Missing required field: ${pg.column}`;
+  }
+  return "Internal server error";
+}
+
+router.post("/orders/takeaway", requireRole("super_admin", "manager", "cashier", "waiter"), async (req, res) => {
+  try {
+    return await createOffPremiseOrder(req, res, "takeaway");
+  } catch (err) {
+    console.error("POST /orders/takeaway failed:", err);
+    return res.status(500).json({ error: orderDbErrorMessage(err) });
+  }
+});
+
+router.post("/orders/delivery", requireRole("super_admin", "manager", "cashier", "waiter"), async (req, res) => {
+  try {
+    return await createOffPremiseOrder(req, res, "delivery");
+  } catch (err) {
+    console.error("POST /orders/delivery failed:", err);
+    return res.status(500).json({ error: orderDbErrorMessage(err) });
+  }
+});
+
 router.get("/orders", requireAuth, async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const outletId = resolveOutletId(req, requestedOutletId);
     const status = req.query.status as string | undefined;
+    const serviceTypeFilter = req.query.serviceType as string | undefined;
     const tableId = req.query.tableId ? parseInt(req.query.tableId as string) : undefined;
     const dateFrom = req.query.dateFrom as string | undefined;
     const dateTo = req.query.dateTo as string | undefined;
@@ -73,6 +177,12 @@ router.get("/orders", requireAuth, async (req: Request, res: Response) => {
     const conditions: SQL[] = [];
     if (outletId) conditions.push(eq(ordersTable.outletId, outletId));
     if (status) conditions.push(eq(ordersTable.status, status as OrderStatus));
+    if (serviceTypeFilter && ["dine_in", "takeaway", "delivery"].includes(serviceTypeFilter)) {
+      conditions.push(eq(ordersTable.serviceType, serviceTypeFilter as ServiceType));
+      if (isOffPremiseType(serviceTypeFilter)) {
+        conditions.push(isNull(ordersTable.tableId));
+      }
+    }
     if (tableId) conditions.push(eq(ordersTable.tableId, tableId));
     if (dateFrom) conditions.push(gte(ordersTable.createdAt, new Date(dateFrom)));
     if (dateTo) {
@@ -88,8 +198,8 @@ router.get("/orders", requireAuth, async (req: Request, res: Response) => {
 
     const ordersWithItems = await Promise.all(ordersRaw.map(async (order) => {
       const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
-      const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, order.tableId) });
-      return { ...order, items, tableName: table?.name ?? "" };
+      const physicalTableName = await resolveTableName(order.tableId);
+      return { ...order, items, tableName: orderDisplayLabel(order, physicalTableName) };
     }));
 
     return res.json({ orders: ordersWithItems, total: ordersWithItems.length });
@@ -99,54 +209,83 @@ router.get("/orders", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-router.post("/orders", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+/** Dine-in only — requires a table. Use POST /orders/takeaway or /orders/delivery for other types. */
+router.post("/orders", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
-    const { outletId, tableId, staffId, notes } = req.body as {
+    const {
+      outletId,
+      tableId,
+      staffId,
+      notes,
+      serviceType: rawServiceType,
+    } = req.body as {
       outletId: number;
-      tableId: number;
+      tableId?: number;
       staffId?: number;
       notes?: string;
+      serviceType?: ServiceType;
     };
 
-    if (!assertOutletAccess(req, outletId)) {
+    const raw = typeof rawServiceType === "string" ? rawServiceType.trim().toLowerCase() : "";
+    if (raw === "takeaway" || raw === "delivery") {
+      return res.status(400).json({
+        error: `Use POST /api/orders/${raw} for ${raw} orders (not linked to tables)`,
+      });
+    }
+
+    const oid = Number(outletId);
+    if (!Number.isFinite(oid) || oid <= 0) {
+      return res.status(400).json({ error: "Invalid outletId" });
+    }
+
+    if (!assertOutletAccess(req, oid)) {
       return res.status(403).json({ error: "Forbidden: cannot create order for another outlet" });
     }
 
-    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
+    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, oid) });
     if (!outlet) return res.status(404).json({ error: "Outlet not found" });
 
-    const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, tableId) });
-    if (!table || table.outletId !== outletId) {
-      return res.status(400).json({ error: "Table does not belong to this outlet" });
+    const dineTableId = tableId != null ? Number(tableId) : NaN;
+    if (!Number.isFinite(dineTableId) || dineTableId <= 0) {
+      return res.status(400).json({ error: "tableId is required for dine-in orders" });
     }
 
-    // Return existing open order for this table instead of creating a duplicate
-    const existingOpen = await db.query.ordersTable.findFirst({
-      where: and(
-        eq(ordersTable.tableId, tableId),
-        eq(ordersTable.status, "open")
-      ),
-    });
-    if (existingOpen) {
-      const items = await itemsWithModifiers(existingOpen.id);
-      const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, existingOpen.id));
-      return res.status(200).json({ ...existingOpen, items, payments, tableName: table.name ?? "" });
+    {
+      const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, dineTableId) });
+      if (!table || Number(table.outletId) !== oid) {
+        return res.status(400).json({ error: "Table does not belong to this outlet" });
+      }
+
+      const existingOpen = await db.query.ordersTable.findFirst({
+        where: and(
+          eq(ordersTable.tableId, dineTableId),
+          eq(ordersTable.status, "open"),
+        ),
+      });
+      if (existingOpen) {
+        const items = await itemsWithModifiers(existingOpen.id);
+        const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, existingOpen.id));
+        const presented = await presentOrder(existingOpen);
+        return res.status(200).json({ ...presented, items, payments });
+      }
+
+      const now = new Date();
+      const [order] = await db.insert(ordersTable).values({
+        outletId: oid,
+        serviceType: "dine_in",
+        tableId: dineTableId,
+        staffId: staffId ?? null,
+        notes: notes ?? null,
+        status: "open",
+        tableOpenedAt: now,
+      }).returning();
+
+      await setTableStatus(dineTableId, "occupied");
+
+      broadcast(oid, { type: "orders" });
+      const presented = await presentOrder(order);
+      return res.status(201).json({ ...presented, items: [], payments: [] });
     }
-
-    const now = new Date();
-    const [order] = await db.insert(ordersTable).values({
-      outletId,
-      tableId,
-      staffId: staffId ?? null,
-      notes: notes ?? null,
-      status: "open",
-      tableOpenedAt: now,
-    }).returning();
-
-    await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, tableId));
-
-    broadcast(outletId, { type: "orders" });
-    return res.status(201).json({ ...order, items: [], payments: [], tableName: table.name ?? "" });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -165,21 +304,59 @@ router.get("/orders/:id", requireAuth, async (req: Request, res: Response) => {
 
     const items = await itemsWithModifiers(id);
     const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, id));
-    const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, order.tableId) });
-    return res.json({ ...order, items, payments, tableName: table?.name ?? "" });
+    const presented = await presentOrder(order);
+    return res.json({ ...presented, items, payments });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+/** Ensures pay_token exists and bank is configured — for receipt QR */
+router.get("/orders/:id/pay-link", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
-    const { status, notes, discountPercent } = req.body as {
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid order id" });
+
+    const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, id) });
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!assertOutletAccess(req, order.outletId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const result = await ensureOrderPayLink(id);
+    if ("error" in result) {
+      if (result.error === "bank_not_configured") {
+        return res.status(400).json({
+          error: "Add bank account details in Settings before printing a payment QR",
+        });
+      }
+      if (result.error === "nothing_due") {
+        return res.json({ payToken: null, amountDue: 0, reason: "nothing_due" });
+      }
+      if (result.error === "not_payable") {
+        return res.json({ payToken: null, amountDue: 0, reason: result.status });
+      }
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    const { status, notes, discountPercent, customerName, customerPhone, deliveryAddress } = req.body as {
       status?: OrderStatus;
       notes?: string;
       discountPercent?: number | null;
+      customerName?: string;
+      customerPhone?: string;
+      deliveryAddress?: string;
     };
 
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, id) });
@@ -191,6 +368,9 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
     const updates: Record<string, unknown> = {};
     if (status !== undefined) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
+    if (customerName !== undefined) updates.customerName = customerName?.trim() || null;
+    if (customerPhone !== undefined) updates.customerPhone = customerPhone?.trim() || null;
+    if (deliveryAddress !== undefined) updates.deliveryAddress = deliveryAddress?.trim() || null;
 
     const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, order.outletId) });
     const taxRate = parseFloat(outlet?.taxRate ?? "0");
@@ -208,7 +388,7 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
     }
 
     // When generating the bill for a timed area, auto-calculate time fee
-    if (status === "billed") {
+    if (status === "billed" && order.tableId) {
       const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, order.tableId) });
       let timeFee = 0;
       if (table?.areaId) {
@@ -228,24 +408,39 @@ router.patch("/orders/:id", requireRole("super_admin", "manager", "cashier"), as
     }
 
     if (status === "paid" || status === "cancelled") {
-      await db.update(tablesTable).set({ status: "available" }).where(eq(tablesTable.id, order.tableId));
+      await setTableStatus(order.tableId, "available");
     } else if (status === "billed") {
-      await db.update(tablesTable).set({ status: "bill_requested" }).where(eq(tablesTable.id, order.tableId));
+      await setTableStatus(order.tableId, "bill_requested");
+      if (!order.payToken) {
+        updates.payToken = generatePayToken();
+      }
     }
 
     const [updated] = await db.update(ordersTable).set(updates).where(eq(ordersTable.id, id)).returning();
+
+    if (
+      updated.serviceType === "takeaway" &&
+      (customerName !== undefined || customerPhone !== undefined)
+    ) {
+      upsertCustomerFromTakeaway({
+        outletId: updated.outletId,
+        customerName: updated.customerName,
+        customerPhone: updated.customerPhone,
+      }).catch((err) => console.error("takeaway customer upsert failed:", err));
+    }
+
     const items = await itemsWithModifiers(id);
     const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, id));
-    const table = await db.query.tablesTable.findFirst({ where: eq(tablesTable.id, updated.tableId) });
+    const presented = await presentOrder(updated);
     broadcast(updated.outletId, { type: "orders" });
-    return res.json({ ...updated, items, payments, tableName: table?.name ?? "" });
+    return res.json({ ...presented, items, payments });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const { menuItemId, quantity, notes, modifierOptionIds } = req.body as {
@@ -333,7 +528,7 @@ router.post("/orders/:id/items", requireRole("super_admin", "manager", "cashier"
   }
 });
 
-router.patch("/orders/:id/items/:itemId", requireRole("super_admin", "manager", "cashier", "kitchen"), async (req: Request, res: Response) => {
+router.patch("/orders/:id/items/:itemId", requireRole("super_admin", "manager", "cashier", "waiter", "kitchen"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const itemId = parseInt(req.params.itemId as string);
@@ -395,7 +590,7 @@ router.patch("/orders/:id/items/:itemId", requireRole("super_admin", "manager", 
   }
 });
 
-router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const itemId = parseInt(req.params.itemId as string);
@@ -433,7 +628,7 @@ router.delete("/orders/:id/items/:itemId", requireRole("super_admin", "manager",
   }
 });
 
-router.get("/orders/:id/payments", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.get("/orders/:id/payments", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const order = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
@@ -449,7 +644,7 @@ router.get("/orders/:id/payments", requireRole("super_admin", "manager", "cashie
   }
 });
 
-router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.id as string);
     const { method, amount, customerId, slipImagePath } = req.body as {
@@ -503,7 +698,7 @@ router.post("/orders/:id/payments", requireRole("super_admin", "manager", "cashi
       await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, orderId));
       const updatedOrder = await db.query.ordersTable.findFirst({ where: eq(ordersTable.id, orderId) });
       if (updatedOrder) {
-        await db.update(tablesTable).set({ status: "available" }).where(eq(tablesTable.id, updatedOrder.tableId));
+        await setTableStatus(updatedOrder.tableId, "available");
       }
 
       // Deduct inventory stock based on order items + recipes

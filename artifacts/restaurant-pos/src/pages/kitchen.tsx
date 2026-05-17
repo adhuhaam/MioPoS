@@ -94,7 +94,12 @@ export default function Kitchen() {
             <div key={order.id} data-testid={`card-kitchen-order-${order.id}`} className="border border-border rounded-xl bg-card overflow-hidden">
               <div className="bg-muted/50 px-4 py-3 flex items-center justify-between border-b border-border">
                 <div>
-                  <p className="font-bold text-base">{order.tableName || `Table #${order.tableId}`}</p>
+                  <p className="font-bold text-base">{order.tableName}</p>
+                  {(order as { serviceType?: string }).serviceType && (order as { serviceType?: string }).serviceType !== "dine_in" && (
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {(order as { serviceType?: string }).serviceType}
+                    </span>
+                  )}
                   <p className="text-xs text-muted-foreground">Order #{order.id}</p>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

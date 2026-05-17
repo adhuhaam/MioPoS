@@ -30,6 +30,7 @@ export const StaffRole = {
   super_admin: "super_admin",
   manager: "manager",
   cashier: "cashier",
+  waiter: "waiter",
   kitchen: "kitchen",
 } as const;
 
@@ -49,6 +50,16 @@ export interface Outlet {
   phone: string;
   taxRate: number;
   currency: string;
+  /** @nullable */
+  bankName?: string | null;
+  /** @nullable */
+  bankAccountName?: string | null;
+  /** @nullable */
+  bankAccountNumber?: string | null;
+  /** @nullable */
+  bankBranch?: string | null;
+  /** @nullable */
+  bankTransferNote?: string | null;
   createdAt: string;
 }
 
@@ -76,6 +87,11 @@ export interface OutletUpdate {
   phone?: string;
   taxRate?: number;
   currency?: string;
+  bankName?: string | null;
+  bankAccountName?: string | null;
+  bankAccountNumber?: string | null;
+  bankBranch?: string | null;
+  bankTransferNote?: string | null;
 }
 
 export type StaffInputRole =
@@ -85,6 +101,7 @@ export const StaffInputRole = {
   super_admin: "super_admin",
   manager: "manager",
   cashier: "cashier",
+  waiter: "waiter",
   kitchen: "kitchen",
 } as const;
 
@@ -103,6 +120,7 @@ export const StaffUpdateRole = {
   super_admin: "super_admin",
   manager: "manager",
   cashier: "cashier",
+  waiter: "waiter",
   kitchen: "kitchen",
 } as const;
 
@@ -323,11 +341,27 @@ export const OrderStatus = {
   cancelled: "cancelled",
 } as const;
 
+export type ServiceType = (typeof ServiceType)[keyof typeof ServiceType];
+
+export const ServiceType = {
+  dine_in: "dine_in",
+  takeaway: "takeaway",
+  delivery: "delivery",
+} as const;
+
 export interface Order {
   id: number;
   outletId: number;
-  tableId: number;
+  serviceType: ServiceType;
+  /** @nullable */
+  tableId?: number | null;
   tableName: string;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
+  deliveryAddress?: string | null;
   /** @nullable */
   staffId?: number | null;
   status: OrderStatus;
@@ -400,8 +434,16 @@ export interface Payment {
 export interface OrderDetail {
   id: number;
   outletId: number;
-  tableId: number;
+  serviceType: ServiceType;
+  /** @nullable */
+  tableId?: number | null;
   tableName: string;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
+  deliveryAddress?: string | null;
   /** @nullable */
   staffId?: number | null;
   status: OrderDetailStatus;
@@ -416,6 +458,8 @@ export interface OrderDetail {
   notes?: string | null;
   /** @nullable */
   tableOpenedAt?: string | null;
+  /** @nullable */
+  payToken?: string | null;
   createdAt: string;
   items: OrderItem[];
   payments: Payment[];
@@ -428,9 +472,13 @@ export interface OrderListResponse {
 
 export interface OrderInput {
   outletId: number;
-  tableId: number;
+  serviceType?: ServiceType;
+  tableId?: number;
   staffId?: number;
   notes?: string;
+  customerName?: string;
+  customerPhone?: string;
+  deliveryAddress?: string;
 }
 
 export type OrderUpdateStatus =
@@ -635,6 +683,7 @@ export type ListTablesParams = {
 export type ListOrdersParams = {
   outletId?: number;
   tableId?: number;
+  serviceType?: ServiceType;
   status?: ListOrdersStatus;
   dateFrom?: string;
   dateTo?: string;

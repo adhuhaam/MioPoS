@@ -17,6 +17,22 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+/** Manual session cookie for React Native (Expo) where cookie jar is not persisted. */
+let _sessionCookie: string | null = null;
+
+function extractSessionCookie(setCookieHeader: string | null): string | null {
+  if (!setCookieHeader) return null;
+  const match = setCookieHeader.match(/connect\.sid=[^;]+/);
+  return match ? match[0] : null;
+}
+
+export function getSessionCookie(): string | null {
+  return _sessionCookie;
+}
+
+export function setSessionCookie(cookie: string | null): void {
+  _sessionCookie = cookie;
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -358,9 +374,17 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  if (_sessionCookie && !headers.has("cookie")) {
+    headers.set("cookie", _sessionCookie);
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
   const response = await fetch(input, { ...init, method, headers, credentials: "include" });
+
+  const setCookie = response.headers.get("set-cookie");
+  const parsed = extractSessionCookie(setCookie);
+  if (parsed) _sessionCookie = parsed;
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

@@ -2,9 +2,11 @@ import { useAuth } from "../lib/auth";
 import { useGetDashboard, getGetDashboardQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, ShoppingBag, UtensilsCrossed, Users } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
 
 export default function Dashboard() {
   const { auth } = useAuth();
+  const { fmt } = useCurrency();
   
   const { data: stats, isLoading } = useGetDashboard({
     outletId: auth?.staff.role !== 'super_admin' ? auth?.outlet.id : undefined
@@ -34,7 +36,7 @@ export default function Dashboard() {
             <DollarSign className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${(stats?.todayRevenue || 0).toFixed(2)}</div>
+            <div className="text-2xl font-bold">{fmt(stats?.todayRevenue || 0)}</div>
           </CardContent>
         </Card>
 

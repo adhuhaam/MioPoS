@@ -16,6 +16,7 @@ const ROLE_COLORS: Record<string, string> = {
   manager: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   cashier: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   kitchen: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  waiter: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
 };
 
 type Form = { outletId: string; name: string; role: string; pin: string };
@@ -139,6 +140,7 @@ export default function Staff() {
                   {isSuperAdmin && <SelectItem value="super_admin">Super Admin</SelectItem>}
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="cashier">Cashier</SelectItem>
+                  <SelectItem value="waiter">Waiter</SelectItem>
                   <SelectItem value="kitchen">Kitchen</SelectItem>
                 </SelectContent>
               </Select>

@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Users, Clock, MapPin, Timer } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
 
 const STATUS_STYLE: Record<string, string> = {
   available: "border-green-400 bg-green-50 dark:bg-green-900/20 hover:border-green-500",
@@ -58,6 +59,7 @@ function formatDuration(mins: number): string {
 
 export default function Tables() {
   const { auth } = useAuth();
+  const { fmt } = useCurrency();
   const outletId = auth!.outlet.id;
   const [, setLocation] = useLocation();
   const qc = useQueryClient();
@@ -235,7 +237,7 @@ export default function Tables() {
                     {area?.type === "timed" && (
                       <Badge variant="outline" className="gap-1 text-xs py-0 px-2">
                         <Timer className="w-2.5 h-2.5" />
-                        {area.hourlyRate ? `$${Number(area.hourlyRate).toFixed(2)}/hr` : "Timed"}
+                        {area.hourlyRate ? `${fmt(area.hourlyRate)}/hr` : "Timed"}
                       </Badge>
                     )}
                     <div className="flex-1 h-px bg-border" />
@@ -304,7 +306,7 @@ export default function Tables() {
                       {a.type === "timed" ? (
                         <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
                           <Timer className="w-3.5 h-3.5" />
-                          <span>{a.hourlyRate ? `$${Number(a.hourlyRate).toFixed(2)}/hr` : "Timed"}</span>
+                          <span>{a.hourlyRate ? `${fmt(a.hourlyRate)}/hr` : "Timed"}</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5">
@@ -398,8 +400,7 @@ export default function Tables() {
               <div>
                 <Label>Hourly Rate</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input className="pl-7" type="number" min={0} step="0.01" value={areaForm.hourlyRate}
+                  <Input type="number" min={0} step="0.01" value={areaForm.hourlyRate}
                     onChange={e => setAreaForm(f => ({ ...f, hourlyRate: e.target.value }))}
                     placeholder="0.00" />
                 </div>
@@ -437,6 +438,7 @@ interface TableCardProps {
 }
 
 function TableCard({ table, area, onClick, onEdit, onDelete }: TableCardProps) {
+  const { fmt } = useCurrency();
   const isOccupied = table.status === "occupied" || table.status === "bill_requested";
   const isTimedArea = area?.type === "timed";
   const openedAt = (table as any).tableOpenedAt as string | null;
@@ -474,7 +476,7 @@ function TableCard({ table, area, onClick, onEdit, onDelete }: TableCardProps) {
           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: area.color }} />
           <span className="text-xs text-muted-foreground">{area.name}</span>
           {isTimedArea && area.hourlyRate && (
-            <span className="text-xs text-muted-foreground">· ${Number(area.hourlyRate).toFixed(0)}/hr</span>
+            <span className="text-xs text-muted-foreground">· {fmt(area.hourlyRate)}/hr</span>
           )}
         </div>
       )}

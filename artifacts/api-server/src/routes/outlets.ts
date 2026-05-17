@@ -22,13 +22,18 @@ router.get("/outlets", async (_req, res) => {
 
 router.post("/outlets", requireRole("super_admin"), async (req, res) => {
   try {
-    const { name, address, phone, taxRate, currency } = req.body;
+    const { name, address, phone, taxRate, currency, bankName, bankAccountName, bankAccountNumber, bankBranch, bankTransferNote } = req.body;
     const [outlet] = await db.insert(outletsTable).values({
       name,
       address: address || "",
       phone: phone || "",
       taxRate: taxRate?.toString() || "0",
       currency: currency || "USD",
+      bankName: bankName?.trim() || null,
+      bankAccountName: bankAccountName?.trim() || null,
+      bankAccountNumber: bankAccountNumber?.trim() || null,
+      bankBranch: bankBranch?.trim() || null,
+      bankTransferNote: bankTransferNote?.trim() || null,
     }).returning();
     return res.status(201).json(outlet);
   } catch (err) {
@@ -60,13 +65,29 @@ router.patch("/outlets/:id", requireRole("super_admin", "manager"), async (req: 
       return res.status(403).json({ error: "Forbidden: managers can only update their own outlet" });
     }
 
-    const { name, address, phone, taxRate, currency } = req.body;
+    const {
+      name, address, phone, taxRate, currency,
+      bankName, bankAccountName, bankAccountNumber, bankBranch, bankTransferNote,
+      businessTin,
+    } = req.body;
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (address !== undefined) updates.address = address;
     if (phone !== undefined) updates.phone = phone;
     if (taxRate !== undefined) updates.taxRate = taxRate.toString();
     if (currency !== undefined) updates.currency = currency;
+    if (businessTin !== undefined) {
+      const tin = businessTin ? String(businessTin).replace(/\D/g, "") : "";
+      if (tin && tin.length !== 13) {
+        return res.status(400).json({ error: "businessTin must be 13 digits" });
+      }
+      updates.businessTin = tin || null;
+    }
+    if (bankName !== undefined) updates.bankName = bankName?.trim() || null;
+    if (bankAccountName !== undefined) updates.bankAccountName = bankAccountName?.trim() || null;
+    if (bankAccountNumber !== undefined) updates.bankAccountNumber = bankAccountNumber?.trim() || null;
+    if (bankBranch !== undefined) updates.bankBranch = bankBranch?.trim() || null;
+    if (bankTransferNote !== undefined) updates.bankTransferNote = bankTransferNote?.trim() || null;
     const [outlet] = await db.update(outletsTable).set(updates).where(eq(outletsTable.id, id)).returning();
     if (!outlet) return res.status(404).json({ error: "Not found" });
     return res.json(outlet);

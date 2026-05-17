@@ -15,11 +15,18 @@ export type KitchenStatus = typeof kitchenStatusEnum[number];
 export const paymentMethodEnum = ["cash", "bank_transfer", "credit"] as const;
 export type PaymentMethod = typeof paymentMethodEnum[number];
 
+export const serviceTypeEnum = ["dine_in", "takeaway", "delivery"] as const;
+export type ServiceType = typeof serviceTypeEnum[number];
+
 export const ordersTable = pgTable("orders", {
   id: serial("id").primaryKey(),
   outletId: integer("outlet_id").notNull().references(() => outletsTable.id, { onDelete: "cascade" }),
-  tableId: integer("table_id").notNull().references(() => tablesTable.id),
+  serviceType: text("service_type").$type<ServiceType>().notNull().default("dine_in"),
+  tableId: integer("table_id").references(() => tablesTable.id),
   staffId: integer("staff_id").references(() => staffTable.id, { onDelete: "set null" }),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  deliveryAddress: text("delivery_address"),
   status: text("status").$type<OrderStatus>().notNull().default("open"),
   subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
   taxAmount: numeric("tax_amount", { precision: 10, scale: 2 }).notNull().default("0"),
@@ -29,6 +36,7 @@ export const ordersTable = pgTable("orders", {
   timeFee: numeric("time_fee", { precision: 10, scale: 2 }).notNull().default("0"),
   tableOpenedAt: timestamp("table_opened_at", { withTimezone: true }),
   notes: text("notes"),
+  payToken: text("pay_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

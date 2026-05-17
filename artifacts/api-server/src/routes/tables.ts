@@ -37,7 +37,7 @@ async function tableWithArea(table: typeof tablesTable.$inferSelect) {
   return { ...table, area: area ?? null, tableOpenedAt };
 }
 
-router.get("/tables", requireAuth, async (req: Request, res: Response) => {
+router.get("/tables", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
     const outletId = resolveOutletId(req, requestedOutletId);
@@ -85,7 +85,7 @@ router.post("/tables", requireRole("super_admin", "manager"), async (req: Reques
   }
 });
 
-router.patch("/tables/:id", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.patch("/tables/:id", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const { areaId, name, capacity, status } = req.body as {

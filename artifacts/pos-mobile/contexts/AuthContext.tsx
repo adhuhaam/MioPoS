@@ -1,10 +1,17 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-import { getMe, login as loginApi, logout as logoutApi } from "@workspace/api-client-react";
+import {
+  getMe,
+  getSessionCookie,
+  login as loginApi,
+  logout as logoutApi,
+  setSessionCookie,
+} from "@workspace/api-client-react";
 import type { SessionInfo } from "@workspace/api-client-react";
 
 const STORAGE_KEY = "@pos/credentials";
+const COOKIE_KEY = "@pos/session-cookie";
 
 interface StoredCredentials {
   outletId: number | null;
@@ -49,6 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        const storedCookie = await AsyncStorage.getItem(COOKIE_KEY);
+        if (storedCookie) setSessionCookie(storedCookie);
         const session = await getMe();
         applySession(session);
       } catch {
@@ -60,7 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applySession, tryAutoLogin]);
 
   const login = useCallback(async (outletId: number | null, pin: string) => {
-    const result = await loginApi({ outletId: outletId as any, pin });
+    const result = await loginApi({
+      outletId: outletId === null ? undefined : outletId,
+      pin,
+    });
+    const cookie = getSessionCookie();
+    if (cookie) await AsyncStorage.setItem(COOKIE_KEY, cookie);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ outletId, pin }));
     applySession(result as unknown as SessionInfo);
   }, [applySession]);
@@ -70,6 +84,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await logoutApi();
     } catch {}
     await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.removeItem(COOKIE_KEY);
+    setSessionCookie(null);
     setStaff(null);
     setOutlet(null);
   }, []);

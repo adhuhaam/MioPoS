@@ -1,4 +1,5 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import express, { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "crypto";
 import { Readable } from "stream";
 import {
   RequestUploadUrlBody,
@@ -6,6 +7,12 @@ import {
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { ObjectPermission } from "../lib/objectAcl";
+import {
+  isLocalObjectStorageEnabled,
+  localObjectPath,
+  readLocalObject,
+  writeLocalUpload,
+} from "../lib/local-object-storage";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -27,6 +34,20 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
   try {
     const { name, size, contentType } = parsed.data;
 
+    if (isLocalObjectStorageEnabled()) {
+      const uploadId = randomUUID();
+      const objectPath = localObjectPath(uploadId);
+      const uploadURL = `/api/storage/uploads/local/${uploadId}`;
+      res.json(
+        RequestUploadUrlResponse.parse({
+          uploadURL,
+          objectPath,
+          metadata: { name, size, contentType },
+        }),
+      );
+      return;
+    }
+
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
@@ -42,6 +63,34 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     res.status(500).json({ error: "Failed to generate upload URL" });
   }
 });
+
+router.put(
+  "/storage/uploads/local/:uploadId",
+  express.raw({ type: () => true, limit: "12mb" }),
+  async (req: Request, res: Response) => {
+    if (!isLocalObjectStorageEnabled()) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const uploadId = req.params.uploadId;
+    if (!uploadId || !/^[a-f0-9-]{36}$/i.test(uploadId)) {
+      res.status(400).json({ error: "Invalid upload id" });
+      return;
+    }
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ error: "Empty upload" });
+      return;
+    }
+    try {
+      await writeLocalUpload(uploadId, body);
+      res.status(204).send();
+    } catch (error) {
+      req.log.error({ err: error }, "Local upload failed");
+      res.status(500).json({ error: "Upload failed" });
+    }
+  },
+);
 
 /**
  * GET /storage/public-objects/*
@@ -89,6 +138,17 @@ router.get("/storage/objects/{*path}", async (req: Request, res: Response) => {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
+
+    if (isLocalObjectStorageEnabled()) {
+      const local = await readLocalObject(objectPath);
+      if (local) {
+        res.setHeader("Content-Type", local.contentType);
+        res.setHeader("Cache-Control", "private, max-age=3600");
+        res.send(local.buffer);
+        return;
+      }
+    }
+
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
     // --- Protected route example (uncomment when using replit-auth) ---

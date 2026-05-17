@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useState } from "react";
 import {
   Alert,
@@ -34,8 +34,20 @@ import {
   useDeleteModifierGroup,
   useListOutlets,
 } from "@workspace/api-client-react";
+import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
+
+type RecipeLine = {
+  id: number;
+  menuItemId: number;
+  inventoryItemId: number;
+  inventoryItemName: string;
+  unit: string;
+  quantity: string;
+};
+
+type InvItem = { id: number; name: string; unit: string };
 
 type Tab = "categories" | "items" | "modifiers";
 
@@ -88,6 +100,26 @@ export default function MenuScreen() {
   const [modModal, setModModal] = useState(false);
   const [modEditId, setModEditId] = useState<number | null>(null);
   const [modName, setModName] = useState("");
+
+  // Recipe modal
+  const [recipeModal, setRecipeModal] = useState(false);
+  const [recipeItemId, setRecipeItemId] = useState<number | null>(null);
+  const [recipeItemName, setRecipeItemName] = useState("");
+  const [newIngId, setNewIngId] = useState("");
+  const [newIngQty, setNewIngQty] = useState("");
+  const [recipeAdding, setRecipeAdding] = useState(false);
+  const [recipeRemoving, setRecipeRemoving] = useState<number | null>(null);
+
+  const { data: recipeLines = [], refetch: refetchRecipe } = useQuery<RecipeLine[]>({
+    queryKey: ["recipe", recipeItemId],
+    queryFn: () => apiFetch(`/api/menu/items/${recipeItemId}/recipe`),
+    enabled: !!recipeItemId && recipeModal,
+  });
+  const { data: invItems = [] } = useQuery<InvItem[]>({
+    queryKey: ["inventory/items-all", outletId],
+    queryFn: () => apiFetch(`/api/inventory/items?outletId=${outletId}`),
+    enabled: recipeModal && !!outletId,
+  });
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -165,6 +197,45 @@ export default function MenuScreen() {
     { text: "Cancel", style: "cancel" },
     { text: "Delete", style: "destructive", onPress: () => deleteModifier.mutate({ id }, { onSuccess: () => qc.invalidateQueries() }) },
   ]);
+
+  const openRecipe = (it: { id: number; name: string }) => {
+    setRecipeItemId(it.id);
+    setRecipeItemName(it.name);
+    setNewIngId("");
+    setNewIngQty("");
+    setRecipeModal(true);
+  };
+  const addRecipeLine = async () => {
+    if (!recipeItemId || !newIngId || !newIngQty) return;
+    setRecipeAdding(true);
+    try {
+      await apiFetch(`/api/menu/items/${recipeItemId}/recipe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inventoryItemId: parseInt(newIngId), quantity: parseFloat(newIngQty) }),
+      });
+      setNewIngId("");
+      setNewIngQty("");
+      refetchRecipe();
+      Alert.alert("Added", "Ingredient added to recipe.");
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed");
+    } finally {
+      setRecipeAdding(false);
+    }
+  };
+  const removeRecipeLine = async (recipeId: number) => {
+    if (!recipeItemId) return;
+    setRecipeRemoving(recipeId);
+    try {
+      await apiFetch(`/api/menu/items/${recipeItemId}/recipe/${recipeId}`, { method: "DELETE" });
+      refetchRecipe();
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed");
+    } finally {
+      setRecipeRemoving(null);
+    }
+  };
 
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: "categories", label: "Categories", icon: "tag" },
@@ -249,6 +320,7 @@ export default function MenuScreen() {
                   {catName ? <Text style={[styles.itemCat, { color: colors.mutedForeground }]}>{catName}</Text> : null}
                 </View>
                 <Text style={[styles.itemPrice, { color: colors.foreground }]}>{Number(it.price).toFixed(2)}</Text>
+                <Pressable onPress={() => openRecipe(it)} style={[styles.iconBtn, { backgroundColor: `${colors.success}18` }]}><Feather name="book-open" size={14} color={colors.success} /></Pressable>
                 <Pressable onPress={() => openEditItem(it)} style={[styles.iconBtn, { backgroundColor: `${colors.accent}18` }]}><Feather name="edit-2" size={14} color={colors.accent} /></Pressable>
                 <Pressable onPress={() => delItem(it.id, it.name)} style={[styles.iconBtn, { backgroundColor: `${colors.destructive}18` }]}><Feather name="trash-2" size={14} color={colors.destructive} /></Pressable>
               </View>
@@ -367,6 +439,86 @@ export default function MenuScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Recipe Modal */}
+      <Modal visible={recipeModal} animationType="slide" presentationStyle="pageSheet">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={[styles.modal, { backgroundColor: colors.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]} numberOfLines={1}>Recipe — {recipeItemName}</Text>
+              <Pressable onPress={() => { setRecipeModal(false); setRecipeItemId(null); }}><Feather name="x" size={22} color={colors.foreground} /></Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.formContent}>
+              <Text style={[styles.recipeHint, { color: colors.mutedForeground }]}>
+                Ingredients used per portion. Stock deducts when the order is paid.
+              </Text>
+              {recipeLines.length > 0 ? (
+                recipeLines.map(line => (
+                  <View key={line.id} style={[styles.recipeRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowName, { color: colors.foreground }]}>{line.inventoryItemName}</Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+                        {Number(line.quantity).toLocaleString(undefined, { maximumFractionDigits: 4 })} {line.unit} / portion
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => removeRecipeLine(line.id)}
+                      disabled={recipeRemoving === line.id}
+                      style={[styles.iconBtn, { backgroundColor: `${colors.destructive}18` }]}
+                    >
+                      <Feather name="trash-2" size={14} color={colors.destructive} />
+                    </Pressable>
+                  </View>
+                ))
+              ) : (
+                <Text style={[styles.recipeHint, { color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }]}>
+                  No ingredients yet.
+                </Text>
+              )}
+              <View style={[styles.recipeAddBox, { borderColor: colors.border, backgroundColor: `${colors.muted}40` }]}>
+                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Add ingredient</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {invItems
+                      .filter(inv => !recipeLines.some(r => r.inventoryItemId === inv.id))
+                      .map(inv => (
+                        <Pressable
+                          key={inv.id}
+                          onPress={() => setNewIngId(String(inv.id))}
+                          style={[styles.typeChip, { borderColor: newIngId === String(inv.id) ? colors.accent : colors.border }, newIngId === String(inv.id) && { backgroundColor: `${colors.accent}18` }]}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: "600", color: newIngId === String(inv.id) ? colors.accent : colors.foreground }}>{inv.name}</Text>
+                          <Text style={{ fontSize: 10, color: colors.mutedForeground }}>{inv.unit}</Text>
+                        </Pressable>
+                      ))}
+                  </View>
+                </ScrollView>
+                {!invItems.length && (
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 8 }}>Add ingredients in Inventory first.</Text>
+                )}
+                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>
+                  Qty per portion{newIngId ? ` (${invItems.find(i => String(i.id) === newIngId)?.unit ?? ""})` : ""}
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                  value={newIngQty}
+                  onChangeText={setNewIngQty}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 200"
+                  placeholderTextColor={colors.mutedForeground}
+                />
+                <Pressable
+                  onPress={addRecipeLine}
+                  disabled={!newIngId || !newIngQty || recipeAdding}
+                  style={[styles.saveBtn, { backgroundColor: colors.accent, opacity: !newIngId || !newIngQty ? 0.5 : 1, marginTop: 10 }]}
+                >
+                  <Text style={styles.saveBtnText}>{recipeAdding ? "Adding…" : "Add Ingredient"}</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Modifier Modal */}
       <Modal visible={modModal} animationType="slide" presentationStyle="pageSheet">
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -425,4 +577,7 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 },
   saveBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  recipeHint: { fontSize: 12, lineHeight: 18 },
+  recipeRow: { borderWidth: 1, borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  recipeAddBox: { borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 8 },
 });

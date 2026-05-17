@@ -1,31 +1,45 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, tablesTable, outletsTable, type OrderStatus } from "@workspace/db";
+import { eq, and, gte, lt, lte, inArray, sql } from "drizzle-orm";
+import {
+  db,
+  ordersTable,
+  orderItemsTable,
+  tablesTable,
+  outletsTable,
+  purchaseInvoicesTable,
+  paymentsTable,
+  type OrderStatus,
+} from "@workspace/db";
 import { requireRole, resolveOutletId } from "../lib/session";
+import { parseReportDateRange } from "../lib/report-dates";
 
 const router = Router();
 
+function receiptRef(orderId: number): string {
+  return `RCP-${String(orderId).padStart(6, "0")}`;
+}
+
 function getPeriodDates(period: string): { start: Date; end: Date } {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (period === "today") {
-    const end = new Date(today);
-    end.setDate(end.getDate() + 1);
-    return { start: today, end };
-  } else if (period === "week") {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 7);
-    const end = new Date(today);
-    end.setDate(end.getDate() + 1);
-    return { start, end };
-  } else {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 30);
-    const end = new Date(today);
-    end.setDate(end.getDate() + 1);
-    return { start, end };
-  }
+  return parseReportDateRange(undefined, undefined, period);
+}
+
+function resolveReportRange(req: Request): { start: Date; end: Date; label: string } {
+  const dateFrom = req.query.dateFrom as string | undefined;
+  const dateTo = req.query.dateTo as string | undefined;
+  const period = req.query.period as string | undefined;
+  return parseReportDateRange(dateFrom, dateTo, period);
+}
+
+/** When the sale was completed (payment time, or last order update). */
+const orderSaleAt = sql<Date>`COALESCE(
+  (SELECT MAX(${paymentsTable.createdAt}) FROM ${paymentsTable} WHERE ${paymentsTable.orderId} = ${ordersTable.id}),
+  ${ordersTable.updatedAt},
+  ${ordersTable.createdAt}
+)`;
+
+function paidOrderInDateRange(start: Date, end: Date) {
+  return and(gte(orderSaleAt, start), lte(orderSaleAt, end));
 }
 
 router.get("/reports/outlet", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
@@ -189,6 +203,233 @@ router.get("/reports/dashboard", requireRole("super_admin", "manager", "cashier"
       totalTables: tables.length,
     });
   } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/reports/tax/summary", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+    if (!outletId) return res.status(400).json({ error: "outletId is required" });
+
+    const { start, end, label } = resolveReportRange(req);
+    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
+    if (!outlet) return res.status(404).json({ error: "Outlet not found" });
+
+    const taxRate = parseFloat(outlet.taxRate ?? "8");
+
+    const paidOrders = await db.select().from(ordersTable).where(
+      and(
+        eq(ordersTable.outletId, outletId),
+        inArray(ordersTable.status, ["paid"] as OrderStatus[]),
+        paidOrderInDateRange(start, end),
+      ),
+    );
+
+    let outputTaxable = 0;
+    let outputGst = 0;
+    let outputTotal = 0;
+    let outputTimeFee = 0;
+    for (const o of paidOrders) {
+      const sub = parseFloat(o.subtotal);
+      const disc = parseFloat(o.discountAmount ?? "0");
+      outputTaxable += sub - disc;
+      outputGst += parseFloat(o.taxAmount ?? "0");
+      outputTimeFee += parseFloat(o.timeFee ?? "0");
+      outputTotal += parseFloat(o.total);
+    }
+
+    const purchases = await db.select().from(purchaseInvoicesTable).where(
+      and(
+        eq(purchaseInvoicesTable.outletId, outletId),
+        gte(purchaseInvoicesTable.invoiceDate, start),
+        lte(purchaseInvoicesTable.invoiceDate, end),
+      ),
+    );
+
+    let inputTaxable = 0;
+    let inputGst = 0;
+    for (const p of purchases) {
+      inputTaxable += parseFloat(p.subtotal);
+      inputGst += parseFloat(p.gstAmount);
+    }
+
+    const netGstPayable = outputGst - inputGst;
+
+    return res.json({
+      outletId,
+      outletName: outlet.name,
+      businessTin: outlet.businessTin ?? null,
+      taxRate,
+      periodLabel: label,
+      dateFrom: req.query.dateFrom ?? start.toISOString().slice(0, 10),
+      dateTo: req.query.dateTo ?? end.toISOString().slice(0, 10),
+      output: {
+        orderCount: paidOrders.length,
+        taxableSales: outputTaxable,
+        gstCollected: outputGst,
+        timeFees: outputTimeFee,
+        grossSales: outputTotal,
+      },
+      input: {
+        invoiceCount: purchases.length,
+        taxablePurchases: inputTaxable,
+        gstPaid: inputGst,
+        grossPurchases: inputTaxable + inputGst,
+      },
+      mira205: {
+        box3TotalSales: outputTaxable + outputGst + outputTimeFee,
+        outputGst,
+        inputGst,
+        netGstPayable,
+      },
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid date range") {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/reports/tax/output", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+    if (!outletId) return res.status(400).json({ error: "outletId is required" });
+
+    const { start, end, label } = resolveReportRange(req);
+    const outlet = await db.query.outletsTable.findFirst({ where: eq(outletsTable.id, outletId) });
+    const taxRate = parseFloat(outlet?.taxRate ?? "8");
+
+    const paidOrders = await db.select().from(ordersTable).where(
+      and(
+        eq(ordersTable.outletId, outletId),
+        inArray(ordersTable.status, ["paid"] as OrderStatus[]),
+        paidOrderInDateRange(start, end),
+      ),
+    );
+
+    const orderIds = paidOrders.map((o) => o.id);
+    const allPayments =
+      orderIds.length > 0
+        ? await db.select().from(paymentsTable).where(inArray(paymentsTable.orderId, orderIds))
+        : [];
+
+    const lines = paidOrders.map((o) => {
+      const sub = parseFloat(o.subtotal);
+      const disc = parseFloat(o.discountAmount ?? "0");
+      const taxable = sub - disc;
+      const gst = parseFloat(o.taxAmount ?? "0");
+      const timeFee = parseFloat(o.timeFee ?? "0");
+      const payments = allPayments.filter((p) => p.orderId === o.id);
+      return {
+        orderId: o.id,
+        invoiceNumber: receiptRef(o.id),
+        invoiceDate: (o.updatedAt ?? o.createdAt).toISOString().slice(0, 10),
+        serviceType: o.serviceType,
+        customerName: o.customerName,
+        customerPhone: o.customerPhone,
+        taxableAmount: taxable,
+        gstAmount: gst,
+        timeFee,
+        totalAmount: parseFloat(o.total),
+        taxRate,
+        paymentMethods: [...new Set(payments.map((p) => p.method))],
+        itemCount: 0,
+      };
+    });
+
+    if (orderIds.length > 0) {
+      const itemRows = await db
+        .select({ orderId: orderItemsTable.orderId })
+        .from(orderItemsTable)
+        .where(inArray(orderItemsTable.orderId, orderIds));
+      const countMap = new Map<number, number>();
+      for (const row of itemRows) {
+        countMap.set(row.orderId, (countMap.get(row.orderId) ?? 0) + 1);
+      }
+      for (const line of lines) {
+        line.itemCount = countMap.get(line.orderId) ?? 0;
+      }
+    }
+
+    lines.sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate) || a.orderId - b.orderId);
+
+    return res.json({
+      outletId,
+      outletName: outlet?.name ?? "",
+      periodLabel: label,
+      taxRate,
+      lines,
+      totals: {
+        count: lines.length,
+        taxableAmount: lines.reduce((s, l) => s + l.taxableAmount, 0),
+        gstAmount: lines.reduce((s, l) => s + l.gstAmount, 0),
+        totalAmount: lines.reduce((s, l) => s + l.totalAmount, 0),
+      },
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid date range") {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/reports/tax/input", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
+  try {
+    const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
+    const outletId = resolveOutletId(req, requestedOutletId);
+    if (!outletId) return res.status(400).json({ error: "outletId is required" });
+
+    const { start, end, label } = resolveReportRange(req);
+
+    const purchases = await db
+      .select()
+      .from(purchaseInvoicesTable)
+      .where(
+        and(
+          eq(purchaseInvoicesTable.outletId, outletId),
+          gte(purchaseInvoicesTable.invoiceDate, start),
+          lte(purchaseInvoicesTable.invoiceDate, end),
+        ),
+      )
+      .orderBy(purchaseInvoicesTable.invoiceDate);
+
+    const lines = purchases.map((p, index) => ({
+      lineNo: index + 1,
+      id: p.id,
+      supplierName: p.supplierName,
+      supplierTin: p.supplierTin,
+      invoiceDate: p.invoiceDate.toISOString().slice(0, 10),
+      invoiceNumber: p.invoiceNumber,
+      subtotal: parseFloat(p.subtotal),
+      gstAmount: parseFloat(p.gstAmount),
+      total: parseFloat(p.subtotal) + parseFloat(p.gstAmount),
+      description: p.description,
+      notes: p.notes,
+    }));
+
+    return res.json({
+      outletId,
+      periodLabel: label,
+      lines,
+      totals: {
+        count: lines.length,
+        subtotal: lines.reduce((s, l) => s + l.subtotal, 0),
+        gstAmount: lines.reduce((s, l) => s + l.gstAmount, 0),
+        total: lines.reduce((s, l) => s + l.total, 0),
+      },
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid date range") {
+      return res.status(400).json({ error: err.message });
+    }
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }

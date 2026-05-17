@@ -14,10 +14,11 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { setBaseUrl } from "@workspace/api-client-react";
+import { getApiBaseUrl } from "@/lib/api";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 
-setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+setBaseUrl(getApiBaseUrl());
 
 SplashScreen.preventAutoHideAsync();
 
@@ -43,6 +44,7 @@ function RootLayoutNav() {
       <Stack.Screen name="outlets" options={{ presentation: "card" }} />
       <Stack.Screen name="staff" options={{ presentation: "card" }} />
       <Stack.Screen name="menu" options={{ presentation: "card" }} />
+      <Stack.Screen name="inventory" options={{ presentation: "card" }} />
       <Stack.Screen name="customers" options={{ presentation: "card" }} />
       <Stack.Screen name="settings" options={{ presentation: "card" }} />
       <Stack.Screen name="areas" options={{ presentation: "card" }} />

@@ -41,7 +41,7 @@ router.get("/customers", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-router.post("/customers", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.post("/customers", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const { name, phone, email, notes, outletId: bodyOutletId } = req.body as {
       name: string;
@@ -84,7 +84,7 @@ router.get("/customers/:id", requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-router.patch("/customers/:id", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.patch("/customers/:id", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const { name, phone, email, notes } = req.body as {
@@ -112,7 +112,7 @@ router.patch("/customers/:id", requireRole("super_admin", "manager", "cashier"),
   }
 });
 
-router.post("/customers/:id/credit", requireRole("super_admin", "manager", "cashier"), async (req: Request, res: Response) => {
+router.post("/customers/:id/credit", requireRole("super_admin", "manager", "cashier", "waiter"), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const { amount, operation } = req.body as { amount: number; operation: "add" | "deduct" };

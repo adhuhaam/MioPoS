@@ -9,6 +9,12 @@ export const outletsTable = pgTable("outlets", {
   phone: text("phone").notNull(),
   taxRate: numeric("tax_rate", { precision: 5, scale: 2 }).notNull().default("0"),
   currency: text("currency").notNull().default("USD"),
+  bankName: text("bank_name"),
+  bankAccountName: text("bank_account_name"),
+  bankAccountNumber: text("bank_account_number"),
+  bankBranch: text("bank_branch"),
+  bankTransferNote: text("bank_transfer_note"),
+  businessTin: text("business_tin"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

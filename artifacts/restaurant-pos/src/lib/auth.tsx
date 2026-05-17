@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { AuthResult } from "@workspace/api-client-react";
 
-type AuthContextType = {
+export type AuthContextType = {
   auth: AuthResult | null;
   setAuth: (auth: AuthResult | null) => void;
   logout: () => void;

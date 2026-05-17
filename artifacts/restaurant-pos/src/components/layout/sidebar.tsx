@@ -16,6 +16,7 @@ import {
   UserCircle,
   Package,
 } from "lucide-react";
+import { canManageTables, canOperateOrders, normalizeRole } from "../../lib/roles";
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const { auth, logout } = useAuth();
@@ -24,28 +25,32 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
   if (!auth) return <>{children}</>;
 
-  const role = auth.staff.role;
+  const role = normalizeRole(auth.staff.role);
 
   const links = [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin", "manager", "cashier"] },
+    { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin", "manager"] },
     { href: "/outlets", label: "Outlets", icon: Store, roles: ["super_admin"] },
     { href: "/menu", label: "Menu", icon: Menu, roles: ["super_admin", "manager"] },
-    { href: "/tables", label: "Tables", icon: Armchair, roles: ["super_admin", "manager", "cashier"] },
-    { href: "/pos", label: "POS", icon: TerminalSquare, roles: ["super_admin", "manager", "cashier"] },
+    { href: "/tables", label: "Tables", icon: Armchair, roles: ["super_admin", "manager"] },
+    { href: "/pos", label: "POS", icon: TerminalSquare, roles: ["super_admin", "manager", "cashier", "waiter"] },
     { href: "/kitchen", label: "Kitchen", icon: ChefHat, roles: ["super_admin", "manager", "kitchen"] },
-    { href: "/orders", label: "Orders", icon: History, roles: ["super_admin", "manager", "cashier"] },
-    { href: "/customers", label: "Customers", icon: UserCircle, roles: ["super_admin", "manager", "cashier"] },
+    { href: "/orders", label: "Orders", icon: History, roles: ["super_admin", "manager", "cashier", "waiter"] },
+    { href: "/customers", label: "Customers", icon: UserCircle, roles: ["super_admin", "manager", "cashier", "waiter"] },
     { href: "/inventory", label: "Inventory", icon: Package, roles: ["super_admin", "manager"] },
     { href: "/reports", label: "Reports", icon: FileText, roles: ["super_admin", "manager"] },
     { href: "/staff", label: "Staff", icon: Users, roles: ["super_admin", "manager"] },
     { href: "/settings", label: "Settings", icon: Settings, roles: ["super_admin", "manager"] },
-  ].filter(link => link.roles.includes(role));
+  ].filter((link) => {
+    if (link.href === "/tables") return canManageTables(role);
+    if (link.href === "/pos" || link.href === "/orders") return canOperateOrders(role);
+    return link.roles.includes(role);
+  });
 
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: () => {
         logout();
-      }
+      },
     });
   };
 
@@ -61,7 +66,11 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             const Icon = link.icon;
             const active = location === link.href;
             return (
-              <Link key={link.href} href={link.href} className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/50 text-sidebar-foreground/80'}`}>
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80"}`}
+              >
                 <Icon className="w-4 h-4" />
                 {link.label}
               </Link>
@@ -75,18 +84,19 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{auth.staff.name}</p>
-              <p className="text-xs text-sidebar-foreground/70 truncate capitalize">{role.replace('_', ' ')}</p>
+              <p className="text-xs text-sidebar-foreground/70 truncate capitalize">{role.replace("_", " ")}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-2 w-full px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-md transition-colors">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-md transition-colors"
+          >
             <LogOut className="w-4 h-4" />
             Logout
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
+      <main className="flex-1 overflow-auto">{children}</main>
     </div>
   );
 }

@@ -824,6 +824,11 @@ paths:
           schema:
             type: string
             enum: [open, billed, paid, cancelled]
+        - name: serviceType
+          in: query
+          schema:
+            type: string
+            enum: [dine_in, takeaway, delivery]
         - name: dateFrom
           in: query
           schema:
@@ -1749,16 +1754,25 @@ components:
     # ── Order schemas ─────────────────────────────────────────────────────
     Order:
       type: object
-      required: [id, outletId, tableId, tableName, status, subtotal, taxAmount, discountAmount, timeFee, total, createdAt]
+      required: [id, outletId, serviceType, tableName, status, subtotal, taxAmount, discountAmount, timeFee, total, createdAt]
       properties:
         id:
           type: integer
         outletId:
           type: integer
+        serviceType:
+          type: string
+          enum: [dine_in, takeaway, delivery]
         tableId:
-          type: integer
+          type: ["integer", "null"]
         tableName:
           type: string
+        customerName:
+          type: ["string", "null"]
+        customerPhone:
+          type: ["string", "null"]
+        deliveryAddress:
+          type: ["string", "null"]
         staffId:
           type: ["integer", "null"]
         status:
@@ -1785,16 +1799,25 @@ components:
 
     OrderDetail:
       type: object
-      required: [id, outletId, tableId, tableName, status, subtotal, taxAmount, discountAmount, timeFee, total, createdAt, items, payments]
+      required: [id, outletId, serviceType, tableName, status, subtotal, taxAmount, discountAmount, timeFee, total, createdAt, items, payments]
       properties:
         id:
           type: integer
         outletId:
           type: integer
+        serviceType:
+          type: string
+          enum: [dine_in, takeaway, delivery]
         tableId:
-          type: integer
+          type: ["integer", "null"]
         tableName:
           type: string
+        customerName:
+          type: ["string", "null"]
+        customerPhone:
+          type: ["string", "null"]
+        deliveryAddress:
+          type: ["string", "null"]
         staffId:
           type: ["integer", "null"]
         status:
@@ -1840,15 +1863,25 @@ components:
 
     OrderInput:
       type: object
-      required: [outletId, tableId]
+      required: [outletId]
       properties:
         outletId:
           type: integer
+        serviceType:
+          type: string
+          enum: [dine_in, takeaway, delivery]
+          default: dine_in
         tableId:
           type: integer
         staffId:
           type: integer
         notes:
+          type: string
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        deliveryAddress:
           type: string
 
     OrderUpdate:
@@ -1860,6 +1893,12 @@ components:
         discountPercent:
           type: number
         notes:
+          type: string
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        deliveryAddress:
           type: string
 
     OrderItem:
@@ -1919,12 +1958,15 @@ components:
     # ── Kitchen schemas ───────────────────────────────────────────────────
     KitchenOrder:
       type: object
-      required: [id, tableId, tableName, status, createdAt, items]
+      required: [id, serviceType, tableName, status, createdAt, items]
       properties:
         id:
           type: integer
+        serviceType:
+          type: string
+          enum: [dine_in, takeaway, delivery]
         tableId:
-          type: integer
+          type: ["integer", "null"]
         tableName:
           type: string
         status:

@@ -20,8 +20,8 @@ function assertOutletAccess(req: Request, resourceOutletId: number | null): bool
   return req.session.outletId === resourceOutletId;
 }
 
-const MANAGER_ASSIGNABLE_ROLES: StaffRole[] = ["manager", "cashier", "kitchen"];
-const ALL_ROLES: StaffRole[] = ["super_admin", "manager", "cashier", "kitchen"];
+const MANAGER_ASSIGNABLE_ROLES: StaffRole[] = ["manager", "cashier", "waiter", "kitchen"];
+const ALL_ROLES: StaffRole[] = ["super_admin", "manager", "cashier", "waiter", "kitchen"];
 
 function isRoleAllowed(requestorRole: string, targetRole: StaffRole): boolean {
   if (requestorRole === "super_admin") return ALL_ROLES.includes(targetRole);
