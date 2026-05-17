@@ -37,7 +37,7 @@ export function installStaticWeb(app: Express): void {
     }),
   );
 
-  app.get("*", (req: Request, res: Response, next: NextFunction) => {
+  app.get("/{*path}", (req: Request, res: Response, next: NextFunction) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       next();
       return;
