@@ -46,6 +46,9 @@ export function requireRole(...roles: string[]) {
 }
 
 export function resolveOutletId(req: Request, requested?: number): number | undefined {
-  if (req.session.role === "super_admin") return requested;
-  return req.session.outletId;
+  // Treat 0 as unset (super_admin placeholder outlet uses id: 0).
+  const normalized =
+    requested !== undefined && requested > 0 ? requested : undefined;
+  if (req.session.role === "super_admin") return normalized;
+  return req.session.outletId ?? undefined;
 }

@@ -128,6 +128,14 @@ export default function Menu() {
         onError: () => toast({ variant: "destructive", title: "Failed" }),
       });
     } else {
+      if (!outletId || outletId <= 0) {
+        toast({
+          variant: "destructive",
+          title: "No outlet selected",
+          description: "Log in with a specific outlet (not “All Outlets”) to create categories.",
+        });
+        return;
+      }
       createCat.mutate({ data: { outletId, name: catName, sortOrder: (categories?.length ?? 0) } }, {
         onSuccess: () => { toast({ title: "Category created" }); setCatDialog(false); invalidateCats(); },
         onError: () => toast({ variant: "destructive", title: "Failed" }),
@@ -154,7 +162,17 @@ export default function Menu() {
       });
     } else {
       if (!activeCatId) return;
-      createItem.mutate({ data: { ...itemData, categoryId: activeCatId, outletId } }, {
+      const activeCategory = categories?.find((c) => c.id === activeCatId);
+      const resolvedOutletId = activeCategory?.outletId ?? (outletId > 0 ? outletId : undefined);
+      if (!resolvedOutletId) {
+        toast({
+          variant: "destructive",
+          title: "No outlet for this category",
+          description: "Log in with a specific outlet, or pick a category that belongs to an outlet.",
+        });
+        return;
+      }
+      createItem.mutate({ data: { ...itemData, categoryId: activeCatId, outletId: resolvedOutletId } }, {
         onSuccess: () => { toast({ title: "Item created" }); setItemDialog(false); invalidateItems(); },
         onError: () => toast({ variant: "destructive", title: "Failed" }),
       });

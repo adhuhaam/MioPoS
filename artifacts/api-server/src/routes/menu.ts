@@ -11,6 +11,24 @@ function assertOutletAccess(req: Request, resourceOutletId: number): boolean {
   return req.session.outletId === resourceOutletId;
 }
 
+async function resolveOutletIdForCategory(
+  categoryId: number,
+  outletId?: number,
+): Promise<{ outletId: number } | { error: string; status: number }> {
+  const category = await db.query.menuCategoriesTable.findFirst({
+    where: eq(menuCategoriesTable.id, categoryId),
+  });
+  if (!category) {
+    return { error: "Category not found", status: 404 };
+  }
+  const resolved =
+    outletId !== undefined && outletId > 0 ? outletId : category.outletId;
+  if (category.outletId !== resolved) {
+    return { error: "Category does not belong to this outlet", status: 400 };
+  }
+  return { outletId: resolved };
+}
+
 router.get("/menu/categories", requireAuth, async (req: Request, res: Response) => {
   try {
     const requestedOutletId = req.query.outletId ? parseInt(req.query.outletId as string) : undefined;
@@ -29,6 +47,12 @@ router.get("/menu/categories", requireAuth, async (req: Request, res: Response) 
 router.post("/menu/categories", requireRole("super_admin", "manager"), async (req: Request, res: Response) => {
   try {
     const { outletId, name, sortOrder } = req.body as { outletId: number; name: string; sortOrder?: number };
+
+    if (!outletId || outletId <= 0) {
+      return res.status(400).json({
+        error: "A valid outlet is required. Super admin: log in with an outlet selected, not “All Outlets”.",
+      });
+    }
 
     if (!assertOutletAccess(req, outletId)) {
       return res.status(403).json({ error: "Forbidden: cannot create category for another outlet" });
@@ -106,20 +130,25 @@ router.post("/menu/items", requireRole("super_admin", "manager"), async (req: Re
   try {
     const { categoryId, outletId, name, description, price, available } = req.body as {
       categoryId: number;
-      outletId: number;
+      outletId?: number;
       name: string;
       description?: string | null;
       price: number;
       available?: boolean;
     };
 
-    if (!assertOutletAccess(req, outletId)) {
+    const resolved = await resolveOutletIdForCategory(categoryId, outletId);
+    if ("error" in resolved) {
+      return res.status(resolved.status).json({ error: resolved.error });
+    }
+
+    if (!assertOutletAccess(req, resolved.outletId)) {
       return res.status(403).json({ error: "Forbidden: cannot create item for another outlet" });
     }
 
     const [item] = await db.insert(menuItemsTable).values({
       categoryId,
-      outletId,
+      outletId: resolved.outletId,
       name,
       description: description ?? null,
       price: price.toString(),
