@@ -9,4 +9,4 @@ healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 # Fresh DB with production dump: run once via `railway run pnpm --filter @workspace/db run import`
 # then comment out releaseCommand. Empty schema / demo data: keep push below.
-releaseCommand = "pnpm --filter @workspace/db run push"
+# releaseCommand = "pnpm --filter @workspace/db run push"

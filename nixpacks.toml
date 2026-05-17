@@ -1,3 +1,7 @@
+# Railway/Nixpacks: Node 20+ required by Vite 7
+[variables]
+NODE_VERSION = "22"
+
 # psql client for `pnpm --filter @workspace/db run import`
 [phases.setup]
 aptPkgs = ["postgresql-client"]
