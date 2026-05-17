@@ -11,23 +11,48 @@ import {
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
-export const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
+function usesReplitSidecar(): boolean {
+  return (
+    Boolean(process.env.REPL_ID) &&
+    !process.env.GOOGLE_APPLICATION_CREDENTIALS &&
+    !process.env.GCS_SERVICE_ACCOUNT_JSON
+  );
+}
+
+function createStorageClient(): Storage {
+  const inlineJson = process.env.GCS_SERVICE_ACCOUNT_JSON;
+  if (inlineJson) {
+    const credentials = JSON.parse(inlineJson) as { project_id?: string };
+    return new Storage({
+      projectId: credentials.project_id,
+      credentials,
+    });
+  }
+
+  if (usesReplitSidecar()) {
+    return new Storage({
+      credentials: {
+        audience: "replit",
+        subject_token_type: "access_token",
+        token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
+        type: "external_account",
+        credential_source: {
+          url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
+          format: {
+            type: "json",
+            subject_token_field_name: "access_token",
+          },
+        },
+        universe_domain: "googleapis.com",
       },
-    },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
+      projectId: "",
+    });
+  }
+
+  return new Storage();
+}
+
+export const objectStorageClient = createStorageClient();
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -52,8 +77,8 @@ export class ObjectStorageService {
     );
     if (paths.length === 0) {
       throw new Error(
-        "PUBLIC_OBJECT_SEARCH_PATHS not set. Create a bucket in 'Object Storage' " +
-          "tool and set PUBLIC_OBJECT_SEARCH_PATHS env var (comma-separated paths)."
+        "PUBLIC_OBJECT_SEARCH_PATHS not set. Set it to comma-separated GCS paths " +
+          "(e.g. /your-bucket/public)."
       );
     }
     return paths;
@@ -63,8 +88,8 @@ export class ObjectStorageService {
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
     if (!dir) {
       throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
+        "PRIVATE_OBJECT_DIR not set. Set it to a GCS path prefix " +
+          "(e.g. /your-bucket/private)."
       );
     }
     return dir;
@@ -110,8 +135,8 @@ export class ObjectStorageService {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
       throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
+        "PRIVATE_OBJECT_DIR not set. Set it to a GCS path prefix " +
+          "(e.g. /your-bucket/private)."
       );
     }
 
@@ -227,7 +252,17 @@ function parseObjectPath(path: string): {
   };
 }
 
-async function signObjectURL({
+const GCS_ACTION: Record<
+  "GET" | "PUT" | "DELETE" | "HEAD",
+  "read" | "write" | "delete"
+> = {
+  GET: "read",
+  HEAD: "read",
+  PUT: "write",
+  DELETE: "delete",
+};
+
+async function signObjectURLViaReplitSidecar({
   bucketName,
   objectName,
   method,
@@ -257,11 +292,54 @@ async function signObjectURL({
   );
   if (!response.ok) {
     throw new Error(
-      `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
+      `Failed to sign object URL via Replit sidecar: ${response.status}`
     );
   }
 
-  const { signed_url: signedURL } = await response.json();
+  const { signed_url: signedURL } = (await response.json()) as {
+    signed_url: string;
+  };
   return signedURL;
+}
+
+async function signObjectURLViaGcs({
+  bucketName,
+  objectName,
+  method,
+  ttlSec,
+}: {
+  bucketName: string;
+  objectName: string;
+  method: "GET" | "PUT" | "DELETE" | "HEAD";
+  ttlSec: number;
+}): Promise<string> {
+  const file = objectStorageClient.bucket(bucketName).file(objectName);
+  const [signedURL] = await file.getSignedUrl({
+    version: "v4",
+    action: GCS_ACTION[method],
+    expires: Date.now() + ttlSec * 1000,
+  });
+  return signedURL;
+}
+
+async function signObjectURL({
+  bucketName,
+  objectName,
+  method,
+  ttlSec,
+}: {
+  bucketName: string;
+  objectName: string;
+  method: "GET" | "PUT" | "DELETE" | "HEAD";
+  ttlSec: number;
+}): Promise<string> {
+  if (usesReplitSidecar()) {
+    return signObjectURLViaReplitSidecar({
+      bucketName,
+      objectName,
+      method,
+      ttlSec,
+    });
+  }
+  return signObjectURLViaGcs({ bucketName, objectName, method, ttlSec });
 }

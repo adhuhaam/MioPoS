@@ -4,11 +4,11 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { sessionMiddleware } from "./lib/session";
+import { installStaticWeb } from "./lib/staticWeb";
 
 const app: Express = express();
 
-// Trust the Replit / reverse-proxy layer so that req.secure reflects the
-// real HTTPS connection and express-session sends Secure cookies correctly.
+// Trust reverse proxy (Replit, Railway, etc.) for HTTPS and Secure cookies.
 app.set("trust proxy", 1);
 
 app.use(
@@ -40,5 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 
 app.use("/api", router);
+
+installStaticWeb(app);
 
 export default app;
